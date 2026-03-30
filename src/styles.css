@@ -1,0 +1,40 @@
+* {
+  margin: 0; padding: 0; box-sizing: border-box;
+  user-select: none; -webkit-user-select: none;
+}
+html, body {
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}
+.island {
+  position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+  background: #000; height: 44px;
+  border-radius: 0 0 20px 20px;
+  display: inline-flex; align-items: center;
+  padding: 0 16px; gap: 10px;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.island.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-44px);
+}
+.album-art {
+  width: 28px; height: 28px; min-width: 28px; border-radius: 7px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  display: none; align-items: center; justify-content: center;
+}
+.album-art.visible { display: flex; }
+.album-art svg { width: 14px; height: 14px; fill: rgba(255,255,255,0.8); }
+.lyrics-area {
+  display: flex; flex-direction: column; justify-content: center; height: 38px;
+}
+.lyric-line {
+  white-space: nowrap;
+  transition: opacity 0.3s ease, transform 0.3s ease, filter 0.3s ease;
+  opacity: 1; transform: scale(1); filter: blur(0);
+}
+.lyric-current { color: #fff; font-size: 13px; font-weight: 600; line-height: 1.35; }
+.lyric-next { color: rgba(255,255,255,0.35); font-size: 10.5px; line-height: 1.3; }
+.lyric-line.out { opacity: 0; transform: scale(0.93); filter: blur(3px); }
+.visualizer { display: flex; align-items: center; gap: 2px; height: 20px; min-width: 16px; flex-shrink: 0; }
+.visualizer-bar { width: 2.5px; background: #30d158; border-radius: 1.5px; height: 4px; transition: height 0.08s ease; }

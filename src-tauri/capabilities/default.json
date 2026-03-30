@@ -1,0 +1,14 @@
+{
+  "identifier": "default",
+  "description": "Capability for all windows",
+  "windows": [
+    "island",
+    "player"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "dialog:default",
+    "dialog:allow-open"
+  ]
+}
