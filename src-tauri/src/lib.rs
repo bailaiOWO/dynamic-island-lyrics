@@ -138,14 +138,29 @@ fn load_lyrics(audio_path: &PathBuf) -> Vec<LyricLine> {
 // ==================== FFmpeg Decode to Memory ====================
 
 fn ffmpeg_path() -> PathBuf {
-    let mut p = std::env::current_exe().unwrap_or_default();
-    p.pop(); // remove exe name
-    p.push("ffmpeg");
-    p
+    // Search: exe_dir/ffmpeg, then walk up parents to find ffmpeg/ dir
+    let exe = std::env::current_exe().unwrap_or_default();
+    let mut dir = exe.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    loop {
+        let candidate = dir.join("ffmpeg");
+        if candidate.join("ffmpeg.exe").exists() {
+            return candidate;
+        }
+        if !dir.pop() { break; }
+    }
+    // Fallback: just try exe_dir/ffmpeg
+    exe.parent().unwrap_or(std::path::Path::new(".")).join("ffmpeg")
 }
 
 fn ffmpeg_bin() -> PathBuf { ffmpeg_path().join("ffmpeg.exe") }
 fn ffprobe_bin() -> PathBuf { ffmpeg_path().join("ffprobe.exe") }
+
+fn log_ffmpeg_path() {
+    eprintln!("[ffmpeg] exe={:?}", std::env::current_exe().unwrap_or_default());
+    eprintln!("[ffmpeg] resolved dir={:?}", ffmpeg_path());
+    eprintln!("[ffmpeg] ffmpeg={:?} exists={}", ffmpeg_bin(), ffmpeg_bin().exists());
+    eprintln!("[ffmpeg] ffprobe={:?} exists={}", ffprobe_bin(), ffprobe_bin().exists());
+}
 
 struct AudioMeta {
     duration_ms: u64,
@@ -315,6 +330,7 @@ pub struct CurrentLyric {
 #[tauri::command]
 fn open_music(path: String, state: State<'_, AppState>) -> Result<SongInfo, String> {
     eprintln!("[open_music] path={}", path);
+    log_ffmpeg_path();
     let mut p = state.player.lock().map_err(|e| e.to_string())?;
 
     // Stop old
@@ -479,8 +495,9 @@ fn get_mouse_in_zone(app: tauri::AppHandle) -> Result<bool, String> {
 fn center_island(app: tauri::AppHandle) -> Result<(), String> {
     let w = get_window(&app)?;
     let sw = get_screen_width(&w)?;
-    w.set_size(tauri::LogicalSize::new(sw, 44.0)).map_err(|e| e.to_string())?;
-    w.set_position(tauri::LogicalPosition::new(0.0, 0.0)).map_err(|e| e.to_string())
+    let ww = w.outer_size().map_err(|e| e.to_string())?.width as f64
+        / w.current_monitor().map_err(|e| e.to_string())?.ok_or("no monitor")?.scale_factor();
+    w.set_position(tauri::LogicalPosition::new((sw - ww) / 2.0, 0.0)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -512,9 +529,7 @@ pub fn run() {
         .setup(|app| {
             let w = app.get_webview_window("island").expect("island window");
             let sw = get_screen_width(&w).unwrap_or(1920.0);
-            // Full screen width, transparent window. The .island div auto-centers via CSS.
-            let _ = w.set_size(tauri::LogicalSize::new(sw, 44.0));
-            let _ = w.set_position(tauri::LogicalPosition::new(0.0, 0.0));
+            let _ = w.set_position(tauri::LogicalPosition::new((sw - 380.0) / 2.0, 0.0));
             let _ = w.set_shadow(false);
             if let Some(pw) = app.get_webview_window("player") {
                 let _ = pw.set_shadow(false);
