@@ -48,11 +48,11 @@
 
     /* Left panel */
     .left-panel {
-      width: 280px; flex-shrink: 0; display: flex; flex-direction: column;
-      padding: 16px; gap: 10px;
+      width: 340px; flex-shrink: 0; display: flex; flex-direction: column;
+      padding: 16px; gap: 10px; overflow-y: auto; overflow-x: hidden;
     }
     .cover-wrap {
-      width: 248px; height: 248px; border-radius: 12px; overflow: hidden;
+      width: 100%; border-radius: 12px; overflow: hidden;
       background: transparent;
     }
     .cover-wrap img {
@@ -105,6 +105,131 @@
       transition: all 0.15s; letter-spacing: 0.5px;
     }
     .open-btn:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.2); }
+    .now-playlist {
+      flex: 1; overflow-y: auto; overflow-x: hidden; margin-top: 6px;
+      scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+    }
+    .now-playlist::-webkit-scrollbar { width: 3px; }
+    .now-playlist::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+    .now-pl-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 6px; border-radius: 6px; cursor: pointer;
+      transition: background 0.15s; font-size: 11px; color: rgba(255,255,255,0.4);
+    }
+    .now-pl-item:hover { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.7); }
+    .now-pl-item.active { background: rgba(255,255,255,0.08); color: #fff; font-weight: 600; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 48px; flex-shrink: 0; display: flex; flex-direction: column;
+      align-items: center; padding: 12px 0; gap: 8px;
+      background: rgba(0,0,0,0.3); border-right: 1px solid rgba(255,255,255,0.05);
+      position: relative; z-index: 2;
+    }
+    .sidebar-btn {
+      width: 36px; height: 36px; border-radius: 8px; border: none;
+      background: none; cursor: pointer; display: flex;
+      align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .sidebar-btn svg { fill: rgba(255,255,255,0.3); transition: fill 0.15s; }
+    .sidebar-btn:hover svg { fill: rgba(255,255,255,0.6); }
+    .sidebar-btn.active { background: rgba(255,255,255,0.08); }
+    .sidebar-btn.active svg { fill: #fff; }
+
+    /* Pages */
+    .page { display: flex; flex: 1; overflow: hidden; transition: opacity 0.25s ease, transform 0.25s ease; }
+    .page.hidden { display: none; opacity: 0; transform: translateX(-10px); }
+
+    /* Library page */
+    .library-panel {
+      flex: 1; display: flex; flex-direction: column;
+      padding: 16px; overflow: hidden;
+    }
+    .list-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 4px 0 8px; flex-shrink: 0;
+    }
+    .tracklist-title { font-size: 13px; color: rgba(255,255,255,0.5); font-weight: 600; }
+    .match-all-btn {
+      background: none; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px; color: rgba(255,255,255,0.4); font-size: 10px;
+      padding: 3px 8px; cursor: pointer; transition: all 0.15s;
+    }
+    .match-all-btn:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+    .list-content {
+      flex: 1; overflow-y: auto; overflow-x: hidden;
+      scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+    }
+    .list-content::-webkit-scrollbar { width: 4px; }
+    .list-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+    /* Track items */
+    .track-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; border-radius: 8px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .track-item:hover { background: rgba(255,255,255,0.05); }
+    .track-item.active { background: rgba(255,255,255,0.1); }
+    .track-info { flex: 1; min-width: 0; }
+    .track-name {
+      font-size: 12px; color: rgba(255,255,255,0.7);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .track-artist {
+      font-size: 10px; color: rgba(255,255,255,0.3);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .track-item.active .track-name { color: #fff; font-weight: 600; }
+    .track-match-btn {
+      background: none; border: none; cursor: pointer; padding: 2px;
+      opacity: 0.3; transition: opacity 0.15s; flex-shrink: 0;
+    }
+    .track-match-btn:hover { opacity: 1; }
+    .track-match-btn svg { width: 14px; height: 14px; fill: rgba(255,255,255,0.5); }
+    .track-has-lyrics { opacity: 0.15; }
+    .track-has-lyrics svg { fill: #30d158; }
+
+    /* Playlist items */
+    .pl-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px; border-radius: 8px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .pl-item:hover { background: rgba(255,255,255,0.05); }
+    .pl-item.dragover { background: rgba(255,255,255,0.12); outline: 1px dashed rgba(255,255,255,0.3); }
+    .pl-icon {
+      width: 44px; height: 44px; border-radius: 8px;
+      background: rgba(255,255,255,0.05); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .pl-icon img { width: 100%; height: 100%; object-fit: cover; }
+    .pl-icon svg { width: 20px; height: 20px; fill: rgba(255,255,255,0.15); }
+    .pl-info { flex: 1; min-width: 0; }
+    .pl-name {
+      font-size: 13px; color: rgba(255,255,255,0.7);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .pl-count { font-size: 10px; color: rgba(255,255,255,0.25); margin-top: 1px; }
+
+    /* Context menu */
+    .context-menu {
+      display: none; position: fixed; z-index: 100;
+      background: #1a1a1a; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px; padding: 4px 0; min-width: 150px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    }
+    .context-menu.show { display: block; }
+    .ctx-item {
+      padding: 7px 14px; font-size: 12px; color: rgba(255,255,255,0.7);
+      cursor: pointer; transition: background 0.1s;
+    }
+    .ctx-item:hover { background: rgba(255,255,255,0.1); }
+    .ctx-danger { color: #ff5f57; }
+    .ctx-danger:hover { background: rgba(255,95,87,0.15); }
+
 
     /* Right panel: lyrics */
     .right-panel {
@@ -153,45 +278,81 @@
       </div>
     </div>
     <div class="main-area">
-      <div class="left-panel">
-        <div class="cover-wrap" id="coverWrap"></div>
-        <div class="song-info">
-          <div class="song-title" id="title">Dynamic Island Lyrics</div>
-          <div class="song-artist" id="artist">--</div>
-        </div>
-        <div class="progress-wrap" id="progressWrap">
-          <div class="progress-bar" id="progressBar"></div>
-        </div>
-        <div class="time-row">
-          <span id="timeCur">0:00</span>
-          <span id="timeTotal">0:00</span>
-        </div>
-        <div class="controls">
-          <button class="ctrl-btn" id="prevBtn">
-            <svg width="20" height="20" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-          </button>
-          <button class="ctrl-btn play-btn" id="playBtn">
-            <svg width="32" height="32" viewBox="0 0 24 24" id="playIcon"><path d="M8 5v14l11-7z"/></svg>
-          </button>
-          <button class="ctrl-btn" id="nextBtn">
-            <svg width="20" height="20" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-          </button>
-        </div>
-        <div class="volume-row">
-          <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
-          <input type="range" class="volume-slider" id="volume" min="0" max="100" value="80" />
-          <span class="vol-label" id="volLabel">80</span>
-        </div>
-        <button class="open-btn" id="openBtn">打开音乐文件</button>
+      <!-- Sidebar -->
+      <div class="sidebar">
+        <button class="sidebar-btn active" id="tabPlay" title="播放">
+          <svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+        </button>
+        <button class="sidebar-btn" id="tabLibrary" title="歌单">
+          <svg width="20" height="20" viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+        </button>
       </div>
-      <div class="right-panel">
-        <div class="lyrics-scroll" id="lyricsScroll">
-          <div class="lyrics-inner" id="lyricsInner">
-            <div class="no-lyrics" id="noLyrics">打开音乐文件开始播放</div>
+
+      <!-- Page: Player -->
+      <div class="page" id="pagePlay">
+        <div class="left-panel">
+          <div class="cover-wrap" id="coverWrap"></div>
+          <div class="song-info">
+            <div class="song-title" id="title">Dynamic Island Lyrics</div>
+            <div class="song-artist" id="artist">--</div>
+          </div>
+          <div class="progress-wrap" id="progressWrap">
+            <div class="progress-bar" id="progressBar"></div>
+          </div>
+          <div class="time-row">
+            <span id="timeCur">0:00</span>
+            <span id="timeTotal">0:00</span>
+          </div>
+          <div class="controls">
+            <button class="ctrl-btn" id="prevBtn">
+              <svg width="20" height="20" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            </button>
+            <button class="ctrl-btn play-btn" id="playBtn">
+              <svg width="32" height="32" viewBox="0 0 24 24" id="playIcon"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button class="ctrl-btn" id="nextBtn">
+              <svg width="20" height="20" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
+          </div>
+          <div class="volume-row">
+            <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+            <input type="range" class="volume-slider" id="volume" min="0" max="100" value="80" />
+            <span class="vol-label" id="volLabel">80</span>
+          </div>
+          <button class="open-btn" id="openBtn">打开音乐文件</button>
+          <div class="now-playlist" id="nowPlaylist"></div>
+        </div>
+        <div class="right-panel">
+          <div class="lyrics-scroll" id="lyricsScroll">
+            <div class="lyrics-inner" id="lyricsInner">
+              <div class="no-lyrics" id="noLyrics">打开音乐文件开始播放</div>
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- Page: Library -->
+      <div class="page hidden" id="pageLibrary">
+        <div class="library-panel">
+          <div class="list-header">
+            <span class="tracklist-title" id="listTitle">歌单</span>
+            <button class="match-all-btn" id="listActionBtn">新建歌单</button>
+          </div>
+          <button class="open-btn" id="openFolderBtn" style="margin:8px 0">添加文件夹为歌单</button>
+          <div class="list-content" id="listContent"></div>
+        </div>
+      </div>
     </div>
+
+    <!-- Context menu (global) -->
+    <div class="context-menu" id="contextMenu">
+      <div class="ctx-item" data-action="rename">重命名</div>
+      <div class="ctx-item" data-action="cover">设置封面</div>
+      <div class="ctx-item" data-action="addfiles">添加歌曲</div>
+      <div class="ctx-item" data-action="addfolder">添加文件夹内歌曲</div>
+      <div class="ctx-item ctx-danger" data-action="delete">删除歌单</div>
+    </div>
+
   </div>
   <script src="player.js"></script>
 </body>

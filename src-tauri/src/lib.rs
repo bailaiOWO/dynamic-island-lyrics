@@ -1,6 +1,7 @@
 use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -134,6 +135,122 @@ fn load_lyrics(audio_path: &PathBuf) -> Vec<LyricLine> {
     }
     Vec::new()
 }
+
+// ==================== Online Search ====================
+
+fn fetch_lyrics_online(title: &str, artist: &str, duration_s: u64) -> Vec<LyricLine> {
+    eprintln!("[online] searching lyrics: '{}' by '{}' dur={}s", title, artist, duration_s);
+    // Try LRCLIB exact match first
+    let url = format!(
+        "https://lrclib.net/api/get?track_name={}&artist_name={}&duration={}",
+        urlenc(title), urlenc(artist), duration_s
+    );
+    if let Ok(resp) = ureq::get(&url)
+        .set("User-Agent", "DynamicIslandLyrics/0.1 (https://github.com/bailaiOWO/dynamic-island-lyrics)")
+        .call()
+    {
+        if resp.status() == 200 {
+            if let Ok(body) = resp.into_string() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                    if let Some(synced) = json["syncedLyrics"].as_str() {
+                        let lyrics = parse_lrc(synced);
+                        if !lyrics.is_empty() {
+                            eprintln!("[online] LRCLIB exact: {} lines", lyrics.len());
+                            return lyrics;
+                        }
+                    }
+                    if let Some(plain) = json["plainLyrics"].as_str() {
+                        eprintln!("[online] LRCLIB plain lyrics found (no sync)");
+                        // Return plain lyrics with 0ms timestamps
+                        return plain.lines()
+                            .filter(|l| !l.trim().is_empty())
+                            .enumerate()
+                            .map(|(i, l)| LyricLine { time_ms: i as u64 * 5000, text: l.trim().to_string() })
+                            .collect();
+                    }
+                }
+            }
+        }
+    }
+    // Fallback: LRCLIB search
+    let url2 = format!(
+        "https://lrclib.net/api/search?track_name={}&artist_name={}",
+        urlenc(title), urlenc(artist)
+    );
+    if let Ok(resp) = ureq::get(&url2)
+        .set("User-Agent", "DynamicIslandLyrics/0.1 (https://github.com/bailaiOWO/dynamic-island-lyrics)")
+        .call()
+    {
+        if resp.status() == 200 {
+            if let Ok(body) = resp.into_string() {
+                if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(&body) {
+                    for item in &arr {
+                        if let Some(synced) = item["syncedLyrics"].as_str() {
+                            let lyrics = parse_lrc(synced);
+                            if !lyrics.is_empty() {
+                                eprintln!("[online] LRCLIB search: {} lines", lyrics.len());
+                                return lyrics;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("[online] no lyrics found");
+    Vec::new()
+}
+
+fn fetch_cover_online(title: &str, artist: &str) -> String {
+    eprintln!("[online] searching cover: '{}' by '{}'", title, artist);
+    let url = format!(
+        "https://itunes.apple.com/search?term={}&media=music&entity=song&limit=3",
+        urlenc(&format!("{} {}", artist, title))
+    );
+    if let Ok(resp) = ureq::get(&url).call() {
+        if resp.status() == 200 {
+            if let Ok(body) = resp.into_string() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                    if let Some(results) = json["results"].as_array() {
+                        for r in results {
+                            if let Some(art) = r["artworkUrl100"].as_str() {
+                                // Replace 100x100 with 600x600 for high res
+                                let hires = art.replace("100x100", "600x600");
+                                eprintln!("[online] iTunes cover found");
+                                // Download and convert to base64
+                                if let Ok(img_resp) = ureq::get(&hires).call() {
+                                    if img_resp.status() == 200 {
+                                        let mut bytes = Vec::new();
+                                        if img_resp.into_reader().read_to_end(&mut bytes).is_ok() && !bytes.is_empty() {
+                                            let mut b64 = String::from("data:image/jpeg;base64,");
+                                            b64.push_str(&base64_encode(&bytes));
+                                            return b64;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("[online] no cover found");
+    String::new()
+}
+
+fn urlenc(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b' ' => out.push('+'),
+            _ => { out.push('%'); out.push_str(&format!("{:02X}", b)); }
+        }
+    }
+    out
+}
+
 
 // ==================== FFmpeg Decode to Memory ====================
 fn base64_encode(data: &[u8]) -> String {
@@ -381,9 +498,8 @@ fn open_music(path: String, state: State<'_, AppState>) -> Result<SongInfo, Stri
         None => ("Unknown".to_string(), fname),
     };
 
-    let lyrics = load_lyrics(&fp);
-
-    // Compute real duration from PCM if ffprobe failed
+    // Load lyrics: local first, then online
+    let mut lyrics = load_lyrics(&fp);
     let dur = if meta.duration_ms > 0 {
         meta.duration_ms
     } else {
@@ -391,18 +507,11 @@ fn open_music(path: String, state: State<'_, AppState>) -> Result<SongInfo, Stri
         let sps = meta.sample_rate as u64 * meta.channels as u64;
         if sps > 0 { total_samples * 1000 / sps } else { 0 }
     };
+    if lyrics.is_empty() && artist != "Unknown" {
+        lyrics = fetch_lyrics_online(&title, &artist, dur / 1000);
+    }
 
-    p.song_title = title.clone();
-    p.song_artist = artist.clone();
-    p.lyrics = lyrics.clone();
-    p.duration_ms = dur;
-    p.inner = Some(PlayerInner {
-        sink, _stream: stream, _handle: handle,
-        pcm_data, pcm_pos, sample_rate: meta.sample_rate, channels: meta.channels,
-    });
-    p.is_paused = false;
-
-    // Extract cover art as base64
+    // Extract cover: embedded first, then online
     let cover_path = {
         let tmp = std::env::temp_dir().join("dil_cover.jpg");
         let _ = std::fs::remove_file(&tmp);
@@ -419,10 +528,25 @@ fn open_music(path: String, state: State<'_, AppState>) -> Result<SongInfo, Stri
             } else { String::new() }
         } else { String::new() }
     };
+    let cover_path = if cover_path.is_empty() && artist != "Unknown" {
+        fetch_cover_online(&title, &artist)
+    } else {
+        cover_path
+    };
 
+    p.song_title = title.clone();
+    p.song_artist = artist.clone();
+    p.lyrics = lyrics.clone();
+    p.duration_ms = dur;
+    p.inner = Some(PlayerInner {
+        sink, _stream: stream, _handle: handle,
+        pcm_data, pcm_pos, sample_rate: meta.sample_rate, channels: meta.channels,
+    });
+    p.is_paused = false;
 
-    eprintln!("[open_music] playing! title={} lyrics={} dur={}ms", title, lyrics.len(), dur);
+    eprintln!("[open_music] playing! title={} lyrics={} dur={}ms cover={}", title, lyrics.len(), dur, !cover_path.is_empty());
     Ok(SongInfo { title, artist, has_lyrics: !lyrics.is_empty(), lyrics, duration_ms: dur, cover_path })
+
 }
 
 #[tauri::command]
@@ -567,6 +691,199 @@ fn resize_island(app: tauri::AppHandle, width: f64) -> Result<(), String> {
     w.set_position(tauri::LogicalPosition::new((sw - width) / 2.0, 0.0)).map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+pub struct TrackItem {
+    path: String,
+    title: String,
+    artist: String,
+    has_local_lyrics: bool,
+}
+
+#[tauri::command]
+fn scan_folder(folder: String) -> Vec<TrackItem> {
+    let exts = ["mp3", "wav", "flac", "ogg", "m4a", "aac", "wma", "opus"];
+    let mut tracks = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&folder) else { return tracks };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if !p.is_file() { continue; }
+        let ext = p.extension().unwrap_or_default().to_string_lossy().to_lowercase();
+        if !exts.contains(&ext.as_str()) { continue; }
+        let stem = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let fname = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let (artist, title) = match stem.split_once(" - ") {
+            Some((a, t)) => (a.trim().to_string(), t.trim().to_string()),
+            None => ("Unknown".to_string(), stem),
+        };
+        // Check if local lyrics exist
+        let dir = p.parent().unwrap_or(std::path::Path::new("."));
+        let has_lyrics = ["lrc", "vtt", "srt", "ass", "ssa"].iter().any(|e| {
+            dir.join(format!("{}.{}", p.file_stem().unwrap_or_default().to_string_lossy(), e)).exists()
+            || dir.join(format!("{}.{}", fname, e)).exists()
+        });
+        tracks.push(TrackItem {
+            path: p.to_string_lossy().to_string(),
+            title, artist, has_local_lyrics: has_lyrics,
+        });
+    }
+    tracks.sort_by(|a, b| a.title.cmp(&b.title));
+    tracks
+}
+
+#[tauri::command]
+fn match_lyrics_for_track(path: String) -> Result<String, String> {
+    let fp = PathBuf::from(&path);
+    let stem = fp.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let (artist, title) = match stem.split_once(" - ") {
+        Some((a, t)) => (a.trim().to_string(), t.trim().to_string()),
+        None => return Err("Cannot parse artist - title from filename".into()),
+    };
+    let meta = ffprobe_meta(&path);
+    let dur_s = meta.duration_ms / 1000;
+    let lyrics = fetch_lyrics_online(&title, &artist, dur_s);
+    if lyrics.is_empty() {
+        return Err("No lyrics found online".into());
+    }
+    // Save as .lrc next to audio file
+    let lrc_path = fp.with_extension("lrc");
+    let mut content = String::new();
+    for l in &lyrics {
+        let min = l.time_ms / 60000;
+        let sec = (l.time_ms % 60000) / 1000;
+        let ms = (l.time_ms % 1000) / 10;
+        content.push_str(&format!("[{:02}:{:02}.{:02}]{}", min, sec, ms, l.text));
+        content.push('\n');
+    }
+    std::fs::write(&lrc_path, &content).map_err(|e| e.to_string())?;
+    eprintln!("[match] saved {} lines to {:?}", lyrics.len(), lrc_path);
+    Ok(format!("Matched {} lines", lyrics.len()))
+}
+
+
+#[tauri::command]
+// ==================== Playlist Management ====================
+
+fn playlists_dir() -> PathBuf {
+    let mut p = ffmpeg_path();
+    p.pop(); // remove "ffmpeg"
+    p.push("playlists");
+    let _ = std::fs::create_dir_all(&p);
+    p
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Playlist {
+    name: String,
+    cover_path: String,
+    tracks: Vec<String>, // file paths
+}
+
+#[derive(Serialize)]
+pub struct PlaylistInfo {
+    id: String, // filename without .json
+    name: String,
+    cover_path: String,
+    track_count: usize,
+}
+
+fn load_playlist(id: &str) -> Option<Playlist> {
+    let path = playlists_dir().join(format!("{}.json", id));
+    let data = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+fn save_playlist(id: &str, pl: &Playlist) -> Result<(), String> {
+    let path = playlists_dir().join(format!("{}.json", id));
+    let data = serde_json::to_string_pretty(pl).map_err(|e| e.to_string())?;
+    std::fs::write(&path, data).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_playlists() -> Vec<PlaylistInfo> {
+    let dir = playlists_dir();
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.extension().map(|e| e == "json").unwrap_or(false) {
+                let id = p.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                if let Some(pl) = load_playlist(&id) {
+                    out.push(PlaylistInfo {
+                        id, name: pl.name, cover_path: pl.cover_path,
+                        track_count: pl.tracks.len(),
+                    });
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+#[tauri::command]
+fn create_playlist(name: String) -> Result<String, String> {
+    let id = format!("{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+    let pl = Playlist { name, cover_path: String::new(), tracks: Vec::new() };
+    save_playlist(&id, &pl)?;
+    Ok(id)
+}
+
+#[tauri::command]
+fn get_playlist_tracks(id: String) -> Result<Vec<TrackItem>, String> {
+    let pl = load_playlist(&id).ok_or("Playlist not found")?;
+    let mut tracks = Vec::new();
+    for path in &pl.tracks {
+        let fp = PathBuf::from(path);
+        if !fp.exists() { continue; }
+        let stem = fp.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let fname = fp.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let (artist, title) = match stem.split_once(" - ") {
+            Some((a, t)) => (a.trim().to_string(), t.trim().to_string()),
+            None => ("Unknown".to_string(), stem),
+        };
+        let dir = fp.parent().unwrap_or(std::path::Path::new("."));
+        let has_lyrics = ["lrc", "vtt", "srt", "ass", "ssa"].iter().any(|e| {
+            dir.join(format!("{}.{}", fp.file_stem().unwrap_or_default().to_string_lossy(), e)).exists()
+            || dir.join(format!("{}.{}", fname, e)).exists()
+        });
+        tracks.push(TrackItem { path: path.clone(), title, artist, has_local_lyrics: has_lyrics });
+    }
+    Ok(tracks)
+}
+
+#[tauri::command]
+fn add_tracks_to_playlist(id: String, paths: Vec<String>) -> Result<(), String> {
+    let mut pl = load_playlist(&id).ok_or("Playlist not found")?;
+    for p in paths {
+        if !pl.tracks.contains(&p) {
+            pl.tracks.push(p);
+        }
+    }
+    save_playlist(&id, &pl)
+}
+
+#[tauri::command]
+fn rename_playlist(id: String, name: String) -> Result<(), String> {
+    let mut pl = load_playlist(&id).ok_or("Playlist not found")?;
+    pl.name = name;
+    save_playlist(&id, &pl)
+}
+
+#[tauri::command]
+fn set_playlist_cover(id: String, cover_path: String) -> Result<(), String> {
+    let mut pl = load_playlist(&id).ok_or("Playlist not found")?;
+    pl.cover_path = cover_path;
+    save_playlist(&id, &pl)
+}
+
+#[tauri::command]
+fn delete_playlist(id: String) -> Result<(), String> {
+    let path = playlists_dir().join(format!("{}.json", id));
+    std::fs::remove_file(&path).map_err(|e| e.to_string())
+}
+
+
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
@@ -583,8 +900,16 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_music, play_pause, get_position, get_current_lyric,
             get_is_playing, set_volume, seek_to, set_click_through,
-            get_mouse_in_zone, set_island_width, set_theme_color, get_theme_color, center_island, resize_island, quit_app,
+            get_mouse_in_zone, set_island_width,
+            set_theme_color, get_theme_color,
+            center_island, resize_island,
+            scan_folder, match_lyrics_for_track,
+            list_playlists, create_playlist, get_playlist_tracks,
+            add_tracks_to_playlist, rename_playlist,
+            set_playlist_cover, delete_playlist,
+            quit_app,
         ])
+
         .setup(|app| {
             let w = app.get_webview_window("island").expect("island window");
             let sw = get_screen_width(&w).unwrap_or(1920.0);
