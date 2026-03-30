@@ -2,25 +2,26 @@ const { invoke } = window.__TAURI__.core;
 const { open } = window.__TAURI__.dialog;
 const { getCurrentWindow } = window.__TAURI__.window;
 
-const titleEl = document.getElementById('title');
-const artistEl = document.getElementById('artist');
-const progressBar = document.getElementById('progressBar');
-const progressWrap = document.getElementById('progressWrap');
-const timeCur = document.getElementById('timeCur');
-const timeTotal = document.getElementById('timeTotal');
-const playBtn = document.getElementById('playBtn');
-const playIcon = document.getElementById('playIcon');
-const openBtn = document.getElementById('openBtn');
-const volumeEl = document.getElementById('volume');
-const volLabel = document.getElementById('volLabel');
-const closeBtn = document.getElementById('closeBtn');
-const minBtn = document.getElementById('minBtn');
-const lyricsScroll = document.getElementById('lyricsScroll');
-const lyricsInner = document.getElementById('lyricsInner');
-const noLyrics = document.getElementById('noLyrics');
+var titleEl = document.getElementById('title');
+var artistEl = document.getElementById('artist');
+var progressBar = document.getElementById('progressBar');
+var progressWrap = document.getElementById('progressWrap');
+var timeCur = document.getElementById('timeCur');
+var timeTotal = document.getElementById('timeTotal');
+var playBtn = document.getElementById('playBtn');
+var playIcon = document.getElementById('playIcon');
+var openBtn = document.getElementById('openBtn');
+var volumeEl = document.getElementById('volume');
+var volLabel = document.getElementById('volLabel');
+var closeBtn = document.getElementById('closeBtn');
+var minBtn = document.getElementById('minBtn');
+var coverWrap = document.getElementById('coverWrap');
+var lyricsScroll = document.getElementById('lyricsScroll');
+var lyricsInner = document.getElementById('lyricsInner');
+var fluidBg = document.getElementById('fluidBg');
 
-const ICON_PLAY = '<path d="M8 5v14l11-7z"/>';
-const ICON_PAUSE = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+var ICON_PLAY = '<path d="M8 5v14l11-7z"/>';
+var ICON_PAUSE = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
 
 var playing = false;
 var totalMs = 0;
@@ -35,26 +36,144 @@ function fmt(ms) {
   return m + ':' + String(s % 60).padStart(2, '0');
 }
 
-function setPlayIcon(isPlaying) {
-  playIcon.innerHTML = isPlaying ? ICON_PAUSE : ICON_PLAY;
+function setPlayIcon(v) {
+  playIcon.innerHTML = v ? ICON_PAUSE : ICON_PLAY;
 }
+
+// Extract dominant colors from image using canvas
+function extractColors(imgSrc, callback) {
+  var img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = function() {
+    var canvas = document.createElement('canvas');
+    var size = 50;
+    canvas.width = size;
+    canvas.height = size;
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, size, size);
+    var data = ctx.getImageData(0, 0, size, size).data;
+    // Sample 5 regions: center, corners
+    var regions = [
+      [size/2, size/2],
+      [size*0.2, size*0.2],
+      [size*0.8, size*0.2],
+      [size*0.2, size*0.8],
+      [size*0.8, size*0.8]
+    ];
+    var colors = [];
+    for (var i = 0; i < regions.length; i++) {
+      var x = Math.floor(regions[i][0]);
+      var y = Math.floor(regions[i][1]);
+      var idx = (y * size + x) * 4;
+      colors.push([data[idx], data[idx+1], data[idx+2]]);
+    }
+    callback(colors);
+  };
+  img.onerror = function() {
+    callback(null);
+  };
+  img.src = imgSrc;
+}
+
+function setCover(dataUrl) {
+  if (dataUrl && dataUrl.length > 30) {
+    coverWrap.innerHTML = '<img src="' + dataUrl + '" />';
+    applyFluidBg(dataUrl);
+    // Send theme color to island visualizer
+    extractColors(dataUrl, function(colors) {
+      if (colors && colors.length > 0) {
+        var c = colors[0];
+        var hex = '#' + ((1<<24)+(c[0]<<16)+(c[1]<<8)+c[2]).toString(16).slice(1);
+        invoke('set_theme_color', { color: hex }).catch(function(){});
+      }
+    });
+  } else {
+    coverWrap.innerHTML = '';
+    resetFluidBg();
+    invoke('set_theme_color', { color: '#ffffff' }).catch(function(){});
+  }
+}
+
+var fluidCanvas = null;
+var fluidCtx = null;
+var fluidImg = null;
+var fluidAnim = null;
+
+function applyFluidBg(dataUrl) {
+  stopFluidBg();
+  var img = new Image();
+  img.onload = function() {
+    fluidImg = img;
+    if (!fluidCanvas) {
+      fluidCanvas = document.createElement('canvas');
+      fluidBg.innerHTML = '';
+      fluidBg.appendChild(fluidCanvas);
+    }
+    fluidCanvas.width = 400;
+    fluidCanvas.height = 400;
+    fluidCtx = fluidCanvas.getContext('2d');
+    var startTime = performance.now();
+    // 4 copies: sizes 25%, 50%, 80%, 125%
+    var copies = [
+      { size: 0.25, orbit: 0.3, speed: 0.0004, rotSpeed: 0.001, phase: 0 },
+      { size: 0.50, orbit: 0.2, speed: 0.0003, rotSpeed: 0.0008, phase: Math.PI * 0.5 },
+      { size: 0.80, orbit: 0,   speed: 0,      rotSpeed: 0.0005, phase: Math.PI },
+      { size: 1.25, orbit: 0,   speed: 0,      rotSpeed: 0.0003, phase: Math.PI * 1.5 }
+    ];
+    function draw() {
+      var t = performance.now() - startTime;
+      var w = fluidCanvas.width;
+      var h = fluidCanvas.height;
+      var cx = w / 2;
+      var cy = h / 2;
+      fluidCtx.fillStyle = '#000';
+      fluidCtx.fillRect(0, 0, w, h);
+      for (var i = 0; i < copies.length; i++) {
+        var c = copies[i];
+        var s = c.size * w;
+        var ox = cx + Math.cos(t * c.speed + c.phase) * c.orbit * w;
+        var oy = cy + Math.sin(t * c.speed + c.phase) * c.orbit * h;
+        var rot = t * c.rotSpeed + c.phase;
+        fluidCtx.save();
+        fluidCtx.translate(ox, oy);
+        fluidCtx.rotate(rot);
+        fluidCtx.drawImage(fluidImg, -s/2, -s/2, s, s);
+        fluidCtx.restore();
+      }
+      fluidAnim = requestAnimationFrame(draw);
+    }
+    draw();
+  };
+  img.src = dataUrl;
+}
+
+function stopFluidBg() {
+  if (fluidAnim) { cancelAnimationFrame(fluidAnim); fluidAnim = null; }
+}
+
+function resetFluidBg() {
+  stopFluidBg();
+  fluidBg.innerHTML = '';
+  fluidCanvas = null;
+  fluidCtx = null;
+  fluidImg = null;
+}
+
 
 function renderLyrics(lyricList) {
   lyrics = lyricList || [];
   lrcElements = [];
   lastActiveIdx = -1;
   lyricsInner.innerHTML = '';
-
   if (lyrics.length === 0) {
-    lyricsInner.innerHTML = '<div class="no-lyrics">无歌词</div>';
+    lyricsInner.innerHTML = '<div class="no-lyrics">\u65e0\u6b4c\u8bcd</div>';
     return;
   }
-
   for (var i = 0; i < lyrics.length; i++) {
     var div = document.createElement('div');
     div.className = 'lrc-line';
     div.textContent = lyrics[i].text;
-    div.setAttribute('data-idx', i);
+    div.setAttribute('data-idx', String(i));
     div.addEventListener('click', function() {
       var idx = parseInt(this.getAttribute('data-idx'));
       if (idx >= 0 && idx < lyrics.length) {
@@ -70,25 +189,19 @@ function scrollToLine(idx) {
   if (idx < 0 || idx >= lrcElements.length) return;
   if (idx === lastActiveIdx) return;
   lastActiveIdx = idx;
-
   for (var i = 0; i < lrcElements.length; i++) {
-    var el = lrcElements[i];
     var dist = Math.abs(i - idx);
     if (i === idx) {
-      el.className = 'lrc-line active';
+      lrcElements[i].className = 'lrc-line active';
     } else if (dist <= 2) {
-      el.className = 'lrc-line near';
+      lrcElements[i].className = 'lrc-line near';
     } else {
-      el.className = 'lrc-line';
+      lrcElements[i].className = 'lrc-line';
     }
   }
-
-  var scrollH = lyricsScroll.clientHeight;
-  var lineEl = lrcElements[idx];
-  var lineTop = lineEl.offsetTop;
-  var lineH = lineEl.offsetHeight;
-  var targetY = -(lineTop - scrollH / 2 + lineH / 2);
-  lyricsInner.style.transform = 'translateY(' + targetY + 'px)';
+  var el = lrcElements[idx];
+  var scrollTop = el.offsetTop - lyricsScroll.clientHeight / 2 + el.offsetHeight / 2;
+  lyricsScroll.scrollTo({ top: scrollTop, behavior: 'smooth' });
 }
 
 function updateLyricHighlight(posMs) {
@@ -100,17 +213,14 @@ function updateLyricHighlight(posMs) {
   scrollToLine(idx);
 }
 
-// Close = quit app
 closeBtn.addEventListener('click', async function() {
   try { await invoke('quit_app'); } catch(e) {}
 });
 
-// Minimize
 minBtn.addEventListener('click', async function() {
   try { await getCurrentWindow().minimize(); } catch(e) {}
 });
 
-// Open file
 openBtn.addEventListener('click', async function() {
   try {
     var result = await open({
@@ -132,6 +242,7 @@ openBtn.addEventListener('click', async function() {
       totalMs = 0;
     }
     timeTotal.textContent = totalMs > 0 ? fmt(totalMs) : '--:--';
+    setCover(info.cover_path);
     renderLyrics(info.lyrics);
   } catch (e) {
     console.error('open_music error:', e);
@@ -140,7 +251,6 @@ openBtn.addEventListener('click', async function() {
   }
 });
 
-// Play/pause
 playBtn.addEventListener('click', async function() {
   try {
     var nowPlaying = await invoke('play_pause');
@@ -149,7 +259,6 @@ playBtn.addEventListener('click', async function() {
   } catch (e) { console.error(e); }
 });
 
-// Volume
 volumeEl.addEventListener('input', async function() {
   var v = volumeEl.value / 100;
   volLabel.textContent = volumeEl.value;
@@ -157,7 +266,6 @@ volumeEl.addEventListener('input', async function() {
 });
 invoke('set_volume', { volume: 0.8 }).catch(function() {});
 
-// Progress seek
 var dragActive = false;
 progressWrap.addEventListener('mousedown', function(e) {
   dragActive = true; seeking = true; doSeek(e);
@@ -177,7 +285,6 @@ function doSeek(e) {
   invoke('seek_to', { positionMs: ms }).catch(function() {});
 }
 
-// Poll update
 setInterval(async function() {
   if (seeking) return;
   try {

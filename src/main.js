@@ -7,6 +7,7 @@ const visBars = document.querySelectorAll(".visualizer-bar");
 
 let isPlaying = false;
 let lastLyricText = "";
+let currentThemeColor = "#30d158";
 let hidden = false;
 
 
@@ -43,6 +44,7 @@ function switchLyric(current, next) {
 }
 
 function updateVisualizer() {
+  visBars.forEach(b => b.style.background = currentThemeColor);
   if (!isPlaying) { visBars.forEach(b => b.style.height = '4px'); return; }
   visBars.forEach(b => b.style.height = (4 + Math.random() * 14) + 'px');
 }
@@ -55,6 +57,11 @@ setInterval(async () => {
     if (!isPlaying) return;
     const lyric = await invoke("get_current_lyric");
     switchLyric(lyric.current, lyric.next);
+  } catch(e) {}
+  // Update theme color from player
+  try {
+    const tc = await invoke("get_theme_color");
+    if (tc && tc !== currentThemeColor) currentThemeColor = tc;
   } catch(e) {}
 }, 80);
 

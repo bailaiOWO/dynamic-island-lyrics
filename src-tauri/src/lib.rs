@@ -136,6 +136,23 @@ fn load_lyrics(audio_path: &PathBuf) -> Vec<LyricLine> {
 }
 
 // ==================== FFmpeg Decode to Memory ====================
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity(data.len() * 4 / 3 + 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((n >> 18) & 63) as usize] as char);
+        result.push(CHARS[((n >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 { result.push(CHARS[((n >> 6) & 63) as usize] as char); } else { result.push('='); }
+        if chunk.len() > 2 { result.push(CHARS[(n & 63) as usize] as char); } else { result.push('='); }
+    }
+    result
+}
+
+
 
 fn ffmpeg_path() -> PathBuf {
     // Search: exe_dir/ffmpeg, then walk up parents to find ffmpeg/ dir
@@ -295,6 +312,7 @@ impl AudioPlayer {
 pub struct AppState {
     player: Mutex<AudioPlayer>,
     island_width: Mutex<f64>,
+    theme_color: Mutex<String>,
 }
 
 // ==================== Helper ====================
@@ -318,6 +336,7 @@ pub struct SongInfo {
     has_lyrics: bool,
     lyrics: Vec<LyricLine>,
     duration_ms: u64,
+    cover_path: String,
 }
 
 #[derive(Serialize)]
@@ -383,8 +402,27 @@ fn open_music(path: String, state: State<'_, AppState>) -> Result<SongInfo, Stri
     });
     p.is_paused = false;
 
+    // Extract cover art as base64
+    let cover_path = {
+        let tmp = std::env::temp_dir().join("dil_cover.jpg");
+        let _ = std::fs::remove_file(&tmp);
+        let _ = Command::new(ffmpeg_bin())
+            .args(["-i", &path, "-an", "-vcodec", "copy", "-y",
+                   &tmp.to_string_lossy()])
+            .stdout(Stdio::null()).stderr(Stdio::null()).stdin(Stdio::null())
+            .output();
+        if tmp.exists() {
+            if let Ok(bytes) = std::fs::read(&tmp) {
+                let mut b64 = String::from("data:image/jpeg;base64,");
+                b64.push_str(&base64_encode(&bytes));
+                b64
+            } else { String::new() }
+        } else { String::new() }
+    };
+
+
     eprintln!("[open_music] playing! title={} lyrics={} dur={}ms", title, lyrics.len(), dur);
-    Ok(SongInfo { title, artist, has_lyrics: !lyrics.is_empty(), lyrics, duration_ms: dur })
+    Ok(SongInfo { title, artist, has_lyrics: !lyrics.is_empty(), lyrics, duration_ms: dur, cover_path })
 }
 
 #[tauri::command]
@@ -499,6 +537,18 @@ fn set_island_width(width: f64, state: State<'_, AppState>) {
     }
 }
 
+#[tauri::command]
+fn set_theme_color(color: String, state: State<'_, AppState>) {
+    if let Ok(mut c) = state.theme_color.lock() {
+        *c = color;
+    }
+}
+
+#[tauri::command]
+fn get_theme_color(state: State<'_, AppState>) -> String {
+    state.theme_color.lock().map(|c| c.clone()).unwrap_or_else(|_| "#ffffff".to_string())
+}
+
 
 
 #[tauri::command]
@@ -529,11 +579,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState { player: Mutex::new(AudioPlayer::new()), island_width: Mutex::new(380.0) })
+        .manage(AppState { player: Mutex::new(AudioPlayer::new()), island_width: Mutex::new(380.0), theme_color: Mutex::new("#ffffff".to_string()) })
         .invoke_handler(tauri::generate_handler![
             open_music, play_pause, get_position, get_current_lyric,
             get_is_playing, set_volume, seek_to, set_click_through,
-            get_mouse_in_zone, set_island_width, center_island, resize_island, quit_app,
+            get_mouse_in_zone, set_island_width, set_theme_color, get_theme_color, center_island, resize_island, quit_app,
         ])
         .setup(|app| {
             let w = app.get_webview_window("island").expect("island window");

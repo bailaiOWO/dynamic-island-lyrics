@@ -12,11 +12,25 @@
     .window {
       background: #0a0a0a; border-radius: 12px; overflow: hidden;
       width: 100%; height: 100vh; display: flex; flex-direction: column;
+      position: relative;
     }
+
+    /* Fluid background canvas */
+    .fluid-bg {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 0;
+    }
+    .fluid-bg canvas {
+      width: 100%; height: 100%;
+      filter: blur(50px) saturate(1.8);
+      opacity: 0.5;
+    }
+
     .titlebar {
       height: 36px; display: flex; align-items: center; justify-content: space-between;
       padding: 0 14px; -webkit-app-region: drag;
-      background: #111; font-size: 12px; color: #555; flex-shrink: 0;
+      background: rgba(0,0,0,0.5); font-size: 12px; color: #555; flex-shrink: 0;
+      position: relative; z-index: 2;
     }
     .titlebar-btns { display: flex; gap: 8px; -webkit-app-region: no-drag; }
     .titlebar-btn {
@@ -27,104 +41,110 @@
     .btn-close { background: #ff5f57; }
     .btn-min { background: #febc2e; }
 
-    /* Lyrics scroll area */
-    .lyrics-scroll {
-      flex: 1; overflow-y: hidden; position: relative;
-      padding: 0 20px;
-      mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
-      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
-    }
-    .lyrics-inner {
-      transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-      padding-top: 50%; padding-bottom: 50%;
-    }
-    .lrc-line {
-      padding: 6px 0;
-      font-size: 14px;
-      line-height: 1.6;
-      color: rgba(255,255,255,0.25);
-      transition: color 0.4s ease, font-size 0.4s ease, font-weight 0.3s ease, filter 0.4s ease, transform 0.4s ease;
-      cursor: pointer;
-      filter: blur(1.5px);
-      transform-origin: left center;
-    }
-    .lrc-line:hover {
-      color: rgba(255,255,255,0.5);
-      filter: blur(0.5px);
-    }
-    .lrc-line.active {
-      color: #fff;
-      font-size: 18px;
-      font-weight: 700;
-      filter: blur(0);
-      transform: scale(1.02);
-    }
-    .lrc-line.near {
-      color: rgba(255,255,255,0.4);
-      filter: blur(0.5px);
-    }
-    .no-lyrics {
-      display: flex; align-items: center; justify-content: center;
-      height: 100%; color: #333; font-size: 14px;
+    .main-area {
+      flex: 1; display: flex; overflow: hidden;
+      position: relative; z-index: 1;
     }
 
-    /* Bottom controls */
-    .bottom-controls {
-      flex-shrink: 0; padding: 12px 20px 16px; background: #0a0a0a;
+    /* Left panel */
+    .left-panel {
+      width: 280px; flex-shrink: 0; display: flex; flex-direction: column;
+      padding: 16px; gap: 10px;
     }
-    .song-info { text-align: center; margin-bottom: 10px; }
+    .cover-wrap {
+      width: 248px; height: 248px; border-radius: 12px; overflow: hidden;
+      background: transparent;
+    }
+    .cover-wrap img {
+      width: 100%; height: 100%; object-fit: cover;
+    }
+    .song-info { text-align: center; }
     .song-title { font-size: 14px; font-weight: 600; color: #eee; }
-    .song-artist { font-size: 11px; color: #555; margin-top: 2px; }
+    .song-artist { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 2px; }
 
     .progress-wrap {
-      position: relative; height: 4px; background: #1a1a1a; border-radius: 2px;
-      cursor: pointer; transition: height 0.15s; margin-bottom: 4px;
+      height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px;
+      cursor: pointer; transition: height 0.15s;
     }
     .progress-wrap:hover { height: 6px; }
     .progress-bar {
-      height: 100%; background: #fff; border-radius: 2px; width: 0%;
+      height: 100%; background: rgba(255,255,255,0.8); border-radius: 2px; width: 0%;
       transition: width 0.15s linear; pointer-events: none;
     }
     .time-row {
       display: flex; justify-content: space-between;
-      font-size: 10px; color: #444;
+      font-size: 10px; color: rgba(255,255,255,0.3); margin-top: -2px;
     }
-
     .controls {
-      display: flex; justify-content: center; align-items: center; gap: 28px;
-      margin: 8px 0 4px;
+      display: flex; justify-content: center; align-items: center; gap: 24px;
     }
     .ctrl-btn {
       background: none; border: none; cursor: pointer; padding: 0;
       display: flex; align-items: center; justify-content: center;
     }
-    .ctrl-btn svg { fill: #666; transition: fill 0.15s; }
+    .ctrl-btn svg { fill: rgba(255,255,255,0.5); transition: fill 0.15s; }
     .ctrl-btn:hover svg { fill: #fff; }
     .ctrl-btn.play-btn svg { fill: #fff; }
-    .ctrl-btn.play-btn:hover svg { fill: #ccc; }
+    .ctrl-btn.play-btn:hover svg { fill: rgba(255,255,255,0.8); }
 
     .volume-row { display: flex; align-items: center; gap: 8px; }
-    .volume-row svg { width: 14px; height: 14px; fill: #444; flex-shrink: 0; }
+    .volume-row svg { width: 14px; height: 14px; fill: rgba(255,255,255,0.3); flex-shrink: 0; }
     .volume-slider {
       flex: 1; height: 3px; -webkit-appearance: none; appearance: none;
-      background: #1a1a1a; border-radius: 2px; outline: none;
+      background: rgba(255,255,255,0.1); border-radius: 2px; outline: none;
     }
     .volume-slider::-webkit-slider-thumb {
       -webkit-appearance: none; width: 10px; height: 10px;
       border-radius: 50%; background: #fff; cursor: pointer;
     }
-    .vol-label { font-size: 10px; color: #444; min-width: 24px; text-align: right; }
+    .vol-label { font-size: 10px; color: rgba(255,255,255,0.3); min-width: 24px; text-align: right; }
 
     .open-btn {
-      width: 100%; padding: 8px; background: #111; border: 1px solid #1a1a1a;
-      border-radius: 10px; color: #555; cursor: pointer; font-size: 12px;
-      transition: all 0.15s; letter-spacing: 0.5px; margin-bottom: 8px;
+      width: 100%; padding: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px; color: rgba(255,255,255,0.4); cursor: pointer; font-size: 12px;
+      transition: all 0.15s; letter-spacing: 0.5px;
     }
-    .open-btn:hover { background: #1a1a1a; color: #fff; border-color: #333; }
+    .open-btn:hover { background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.2); }
+
+    /* Right panel: lyrics */
+    .right-panel {
+      flex: 1; position: relative; overflow: hidden;
+      border-left: 1px solid rgba(255,255,255,0.05);
+    }
+    .lyrics-scroll {
+      width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden;
+      scrollbar-width: none;
+      mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+    }
+    .lyrics-scroll::-webkit-scrollbar { display: none; }
+    .lyrics-inner { padding: 40% 20px; }
+    .lrc-line {
+      padding: 8px 0;
+      font-size: 15px;
+      line-height: 1.5;
+      color: rgba(255,255,255,0.2);
+      transition: color 0.4s ease, font-size 0.4s ease, font-weight 0.3s ease, filter 0.4s ease;
+      cursor: pointer;
+      filter: blur(2px);
+    }
+    .lrc-line:hover { color: rgba(255,255,255,0.45); filter: blur(0); }
+    .lrc-line.active {
+      color: #fff;
+      font-size: 20px;
+      font-weight: 700;
+      filter: blur(0);
+    }
+    .lrc-line.near { color: rgba(255,255,255,0.35); filter: blur(1px); }
+    .no-lyrics {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: rgba(255,255,255,0.2); font-size: 14px;
+    }
   </style>
 </head>
 <body>
   <div class="window">
+    <div class="fluid-bg" id="fluidBg"></div>
     <div class="titlebar">
       <span>Player</span>
       <div class="titlebar-btns">
@@ -132,41 +152,44 @@
         <button class="titlebar-btn btn-close" id="closeBtn"></button>
       </div>
     </div>
-
-    <div class="lyrics-scroll" id="lyricsScroll">
-      <div class="lyrics-inner" id="lyricsInner">
-        <div class="no-lyrics" id="noLyrics">打开音乐文件开始播放</div>
+    <div class="main-area">
+      <div class="left-panel">
+        <div class="cover-wrap" id="coverWrap"></div>
+        <div class="song-info">
+          <div class="song-title" id="title">Dynamic Island Lyrics</div>
+          <div class="song-artist" id="artist">--</div>
+        </div>
+        <div class="progress-wrap" id="progressWrap">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="time-row">
+          <span id="timeCur">0:00</span>
+          <span id="timeTotal">0:00</span>
+        </div>
+        <div class="controls">
+          <button class="ctrl-btn" id="prevBtn">
+            <svg width="20" height="20" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+          </button>
+          <button class="ctrl-btn play-btn" id="playBtn">
+            <svg width="32" height="32" viewBox="0 0 24 24" id="playIcon"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button class="ctrl-btn" id="nextBtn">
+            <svg width="20" height="20" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+          </button>
+        </div>
+        <div class="volume-row">
+          <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+          <input type="range" class="volume-slider" id="volume" min="0" max="100" value="80" />
+          <span class="vol-label" id="volLabel">80</span>
+        </div>
+        <button class="open-btn" id="openBtn">打开音乐文件</button>
       </div>
-    </div>
-
-    <div class="bottom-controls">
-      <button class="open-btn" id="openBtn">打开音乐文件</button>
-      <div class="song-info">
-        <div class="song-title" id="title">未加载</div>
-        <div class="song-artist" id="artist">--</div>
-      </div>
-      <div class="progress-wrap" id="progressWrap">
-        <div class="progress-bar" id="progressBar"></div>
-      </div>
-      <div class="time-row">
-        <span id="timeCur">0:00</span>
-        <span id="timeTotal">0:00</span>
-      </div>
-      <div class="controls">
-        <button class="ctrl-btn" id="prevBtn">
-          <svg width="20" height="20" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-        </button>
-        <button class="ctrl-btn play-btn" id="playBtn">
-          <svg width="36" height="36" viewBox="0 0 24 24" id="playIcon"><path d="M8 5v14l11-7z"/></svg>
-        </button>
-        <button class="ctrl-btn" id="nextBtn">
-          <svg width="20" height="20" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-        </button>
-      </div>
-      <div class="volume-row">
-        <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
-        <input type="range" class="volume-slider" id="volume" min="0" max="100" value="80" />
-        <span class="vol-label" id="volLabel">80</span>
+      <div class="right-panel">
+        <div class="lyrics-scroll" id="lyricsScroll">
+          <div class="lyrics-inner" id="lyricsInner">
+            <div class="no-lyrics" id="noLyrics">打开音乐文件开始播放</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

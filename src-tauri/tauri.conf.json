@@ -26,8 +26,8 @@
       {
         "label": "player",
         "title": "Player",
-        "width": 360,
-        "height": 600,
+        "width": 700,
+        "height": 500,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": false,
