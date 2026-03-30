@@ -294,6 +294,7 @@ impl AudioPlayer {
 
 pub struct AppState {
     player: Mutex<AudioPlayer>,
+    island_width: Mutex<f64>,
 }
 
 // ==================== Helper ====================
@@ -468,14 +469,15 @@ fn set_click_through(app: tauri::AppHandle, through: bool) -> Result<(), String>
 }
 
 #[tauri::command]
-fn get_mouse_in_zone(app: tauri::AppHandle) -> Result<bool, String> {
+fn get_mouse_in_zone(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<bool, String> {
     let w = get_window(&app)?;
-    let pos = w.outer_position().map_err(|e| e.to_string())?;
-    let size = w.outer_size().map_err(|e| e.to_string())?;
-    let wx = pos.x as f64;
-    let wy = pos.y as f64;
-    let ww = size.width as f64;
-    let zone_h = 80.0;
+    let monitor = w.current_monitor().map_err(|e| e.to_string())?.ok_or("no monitor")?;
+    let scale = monitor.scale_factor();
+    let screen_w = monitor.size().width as f64;
+    let iw = state.island_width.lock().map(|g| *g).unwrap_or(380.0) * scale;
+    let zone_left = (screen_w - iw) / 2.0;
+    let zone_right = (screen_w + iw) / 2.0;
+    let zone_bottom = 60.0 * scale;
 
     #[cfg(target_os = "windows")]
     {
@@ -484,20 +486,27 @@ fn get_mouse_in_zone(app: tauri::AppHandle) -> Result<bool, String> {
         let mut pt = POINT { x: 0, y: 0 };
         if unsafe { GetCursorPos(&mut pt) } != 0 {
             let (mx, my) = (pt.x as f64, pt.y as f64);
-            // Window is full screen width now, only check Y (top 80px)
-            return Ok(my >= wy && my <= wy + zone_h);
+            return Ok(mx >= zone_left && mx <= zone_right && my >= 0.0 && my <= zone_bottom);
         }
     }
     Ok(false)
 }
 
 #[tauri::command]
+fn set_island_width(width: f64, state: State<'_, AppState>) {
+    if let Ok(mut w) = state.island_width.lock() {
+        *w = width;
+    }
+}
+
+
+
+#[tauri::command]
 fn center_island(app: tauri::AppHandle) -> Result<(), String> {
     let w = get_window(&app)?;
     let sw = get_screen_width(&w)?;
-    let ww = w.outer_size().map_err(|e| e.to_string())?.width as f64
-        / w.current_monitor().map_err(|e| e.to_string())?.ok_or("no monitor")?.scale_factor();
-    w.set_position(tauri::LogicalPosition::new((sw - ww) / 2.0, 0.0)).map_err(|e| e.to_string())
+    w.set_size(tauri::LogicalSize::new(sw, 44.0)).map_err(|e| e.to_string())?;
+    w.set_position(tauri::LogicalPosition::new(0.0, 0.0)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -520,17 +529,19 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState { player: Mutex::new(AudioPlayer::new()) })
+        .manage(AppState { player: Mutex::new(AudioPlayer::new()), island_width: Mutex::new(380.0) })
         .invoke_handler(tauri::generate_handler![
             open_music, play_pause, get_position, get_current_lyric,
             get_is_playing, set_volume, seek_to, set_click_through,
-            get_mouse_in_zone, center_island, resize_island, quit_app,
+            get_mouse_in_zone, set_island_width, center_island, resize_island, quit_app,
         ])
         .setup(|app| {
             let w = app.get_webview_window("island").expect("island window");
             let sw = get_screen_width(&w).unwrap_or(1920.0);
-            let _ = w.set_position(tauri::LogicalPosition::new((sw - 380.0) / 2.0, 0.0));
+            let _ = w.set_size(tauri::LogicalSize::new(sw, 44.0));
+            let _ = w.set_position(tauri::LogicalPosition::new(0.0, 0.0));
             let _ = w.set_shadow(false);
+            let _ = w.set_ignore_cursor_events(true);
             if let Some(pw) = app.get_webview_window("player") {
                 let _ = pw.set_shadow(false);
             }

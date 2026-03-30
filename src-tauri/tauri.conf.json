@@ -12,7 +12,7 @@
       {
         "label": "island",
         "title": "Dynamic Island Lyrics",
-        "width": 380,
+        "width": 1920,
         "height": 44,
         "x": 660,
         "y": 0,
@@ -25,9 +25,9 @@
       },
       {
         "label": "player",
-        "title": "Dynamic Island Lyrics - Player",
-        "width": 320,
-        "height": 380,
+        "title": "Player",
+        "width": 360,
+        "height": 600,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": false,

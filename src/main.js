@@ -8,33 +8,22 @@ const visBars = document.querySelectorAll(".visualizer-bar");
 let isPlaying = false;
 let lastLyricText = "";
 let hidden = false;
-let recoverTimer = null;
 
-// mouse enter -> hide + click-through
-island.addEventListener("mouseenter", async () => {
-  if (hidden) return;
-  hidden = true;
-  island.classList.add("hidden");
-  setTimeout(async () => {
-    try { await invoke("set_click_through", { through: true }); } catch(e) {}
-    startRecoverCheck();
-  }, 280);
-});
 
-function startRecoverCheck() {
-  if (recoverTimer) { clearInterval(recoverTimer); recoverTimer = null; }
-  recoverTimer = setInterval(async () => {
-    try {
-      const inZone = await invoke("get_mouse_in_zone");
-      if (inZone) return;
-      clearInterval(recoverTimer);
-      recoverTimer = null;
-      try { await invoke("set_click_through", { through: false }); } catch(e) {}
-      island.classList.remove("hidden");
+// Poll mouse position - hide when cursor is near top
+setInterval(async () => {
+  try {
+    const inZone = await invoke("get_mouse_in_zone");
+    if (inZone && !hidden) {
+      hidden = true;
+      island.classList.add("hidden");
+    } else if (!inZone && hidden) {
       hidden = false;
-    } catch(e) {}
-  }, 150);
-}
+      island.classList.remove("hidden");
+    }
+  } catch(e) {}
+}, 150);
+
 
 function switchLyric(current, next) {
   if (current === lastLyricText) return;
@@ -46,6 +35,10 @@ function switchLyric(current, next) {
     lyricNext.textContent = next;
     lyricCurrent.classList.remove("out");
     lyricNext.classList.remove("out");
+    requestAnimationFrame(() => {
+      const w = island.getBoundingClientRect().width;
+      invoke("set_island_width", { width: w }).catch(() => {});
+    });
   }, 180);
 }
 

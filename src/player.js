@@ -15,17 +15,23 @@ const volumeEl = document.getElementById('volume');
 const volLabel = document.getElementById('volLabel');
 const closeBtn = document.getElementById('closeBtn');
 const minBtn = document.getElementById('minBtn');
+const lyricsScroll = document.getElementById('lyricsScroll');
+const lyricsInner = document.getElementById('lyricsInner');
+const noLyrics = document.getElementById('noLyrics');
 
 const ICON_PLAY = '<path d="M8 5v14l11-7z"/>';
 const ICON_PAUSE = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
 
-let playing = false;
-let totalMs = 0;
-let seeking = false;
+var playing = false;
+var totalMs = 0;
+var seeking = false;
+var lyrics = [];
+var lrcElements = [];
+var lastActiveIdx = -1;
 
 function fmt(ms) {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
+  var s = Math.floor(ms / 1000);
+  var m = Math.floor(s / 60);
   return m + ':' + String(s % 60).padStart(2, '0');
 }
 
@@ -33,31 +39,91 @@ function setPlayIcon(isPlaying) {
   playIcon.innerHTML = isPlaying ? ICON_PAUSE : ICON_PLAY;
 }
 
-// 关闭 = 退出整个 app
-closeBtn.addEventListener('click', async () => {
+function renderLyrics(lyricList) {
+  lyrics = lyricList || [];
+  lrcElements = [];
+  lastActiveIdx = -1;
+  lyricsInner.innerHTML = '';
+
+  if (lyrics.length === 0) {
+    lyricsInner.innerHTML = '<div class="no-lyrics">无歌词</div>';
+    return;
+  }
+
+  for (var i = 0; i < lyrics.length; i++) {
+    var div = document.createElement('div');
+    div.className = 'lrc-line';
+    div.textContent = lyrics[i].text;
+    div.setAttribute('data-idx', i);
+    div.addEventListener('click', function() {
+      var idx = parseInt(this.getAttribute('data-idx'));
+      if (idx >= 0 && idx < lyrics.length) {
+        invoke('seek_to', { positionMs: lyrics[idx].time_ms }).catch(function() {});
+      }
+    });
+    lyricsInner.appendChild(div);
+    lrcElements.push(div);
+  }
+}
+
+function scrollToLine(idx) {
+  if (idx < 0 || idx >= lrcElements.length) return;
+  if (idx === lastActiveIdx) return;
+  lastActiveIdx = idx;
+
+  for (var i = 0; i < lrcElements.length; i++) {
+    var el = lrcElements[i];
+    var dist = Math.abs(i - idx);
+    if (i === idx) {
+      el.className = 'lrc-line active';
+    } else if (dist <= 2) {
+      el.className = 'lrc-line near';
+    } else {
+      el.className = 'lrc-line';
+    }
+  }
+
+  var scrollH = lyricsScroll.clientHeight;
+  var lineEl = lrcElements[idx];
+  var lineTop = lineEl.offsetTop;
+  var lineH = lineEl.offsetHeight;
+  var targetY = -(lineTop - scrollH / 2 + lineH / 2);
+  lyricsInner.style.transform = 'translateY(' + targetY + 'px)';
+}
+
+function updateLyricHighlight(posMs) {
+  if (lyrics.length === 0) return;
+  var idx = 0;
+  for (var i = lyrics.length - 1; i >= 0; i--) {
+    if (lyrics[i].time_ms <= posMs) { idx = i; break; }
+  }
+  scrollToLine(idx);
+}
+
+// Close = quit app
+closeBtn.addEventListener('click', async function() {
   try { await invoke('quit_app'); } catch(e) {}
 });
 
-// 最小化
-minBtn.addEventListener('click', async () => {
+// Minimize
+minBtn.addEventListener('click', async function() {
   try { await getCurrentWindow().minimize(); } catch(e) {}
 });
 
-// 打开文件
-openBtn.addEventListener('click', async () => {
+// Open file
+openBtn.addEventListener('click', async function() {
   try {
-    const result = await open({
+    var result = await open({
       filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'wma'] }]
     });
     if (!result) return;
-    const path = typeof result === 'string' ? result : (result.path || result.toString());
+    var path = typeof result === 'string' ? result : (result.path || result.toString());
     if (!path) return;
-    const info = await invoke('open_music', { path });
+    var info = await invoke('open_music', { path: path });
     titleEl.textContent = info.title;
     artistEl.textContent = info.artist;
     playing = true;
     setPlayIcon(true);
-    // 用真实时长，没有则用歌词估算
     if (info.duration_ms > 0) {
       totalMs = info.duration_ms;
     } else if (info.lyrics && info.lyrics.length > 0) {
@@ -66,69 +132,62 @@ openBtn.addEventListener('click', async () => {
       totalMs = 0;
     }
     timeTotal.textContent = totalMs > 0 ? fmt(totalMs) : '--:--';
+    renderLyrics(info.lyrics);
   } catch (e) {
     console.error('open_music error:', e);
-    titleEl.textContent = '加载失败';
+    titleEl.textContent = 'Error';
     artistEl.textContent = String(e);
   }
 });
 
-// 播放/暂停
-playBtn.addEventListener('click', async () => {
+// Play/pause
+playBtn.addEventListener('click', async function() {
   try {
-    const nowPlaying = await invoke('play_pause');
+    var nowPlaying = await invoke('play_pause');
     playing = nowPlaying;
     setPlayIcon(playing);
   } catch (e) { console.error(e); }
 });
 
-// 音量
-volumeEl.addEventListener('input', async () => {
-  const v = volumeEl.value / 100;
+// Volume
+volumeEl.addEventListener('input', async function() {
+  var v = volumeEl.value / 100;
   volLabel.textContent = volumeEl.value;
   try { await invoke('set_volume', { volume: v }); } catch (e) {}
 });
-invoke('set_volume', { volume: 0.8 }).catch(() => {});
+invoke('set_volume', { volume: 0.8 }).catch(function() {});
 
-// 进度条拖拽
-let dragActive = false;
-
-progressWrap.addEventListener('mousedown', (e) => {
-  dragActive = true;
-  seeking = true;
-  doSeek(e);
+// Progress seek
+var dragActive = false;
+progressWrap.addEventListener('mousedown', function(e) {
+  dragActive = true; seeking = true; doSeek(e);
 });
-document.addEventListener('mousemove', (e) => { if (dragActive) doSeek(e); });
-document.addEventListener('mouseup', () => {
-  if (dragActive) {
-    dragActive = false;
-    setTimeout(() => { seeking = false; }, 300);
-  }
+document.addEventListener('mousemove', function(e) { if (dragActive) doSeek(e); });
+document.addEventListener('mouseup', function() {
+  if (dragActive) { dragActive = false; setTimeout(function() { seeking = false; }, 300); }
 });
 
 function doSeek(e) {
   if (totalMs <= 0) return;
-  const rect = progressWrap.getBoundingClientRect();
-  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  const ms = Math.floor(ratio * totalMs);
+  var rect = progressWrap.getBoundingClientRect();
+  var ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  var ms = Math.floor(ratio * totalMs);
   progressBar.style.width = (ratio * 100) + '%';
   timeCur.textContent = fmt(ms);
-  invoke('seek_to', { positionMs: ms }).catch(() => {});
+  invoke('seek_to', { positionMs: ms }).catch(function() {});
 }
 
-// 轮询更新进度
-setInterval(async () => {
+// Poll update
+setInterval(async function() {
   if (seeking) return;
   try {
-    const pos = await invoke('get_position');
+    var pos = await invoke('get_position');
     timeCur.textContent = fmt(pos);
     if (totalMs > 0) {
       progressBar.style.width = Math.min(100, pos / totalMs * 100) + '%';
     }
-    const isPlaying = await invoke('get_is_playing');
-    if (isPlaying !== playing) {
-      playing = isPlaying;
-      setPlayIcon(playing);
-    }
+    var isP = await invoke('get_is_playing');
+    if (isP !== playing) { playing = isP; setPlayIcon(playing); }
+    updateLyricHighlight(pos);
   } catch (e) {}
-}, 200);
+}, 100);
