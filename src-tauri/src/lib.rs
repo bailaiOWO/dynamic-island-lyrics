@@ -962,6 +962,7 @@ pub fn run() {
             let _ = w.set_size(tauri::LogicalSize::new(sw, 44.0));
             let _ = w.set_position(tauri::LogicalPosition::new(0.0, 0.0));
             let _ = w.set_shadow(false);
+            let _ = w.set_skip_taskbar(true);
             let _ = w.set_ignore_cursor_events(true);
 
             // Player window
