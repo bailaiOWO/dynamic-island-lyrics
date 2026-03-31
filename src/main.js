@@ -8,6 +8,7 @@ const visBars = document.querySelectorAll(".visualizer-bar");
 let isPlaying = false;
 let lastLyricText = "";
 let currentThemeColor = "#30d158";
+let currentIslandHeight = 44;
 let hidden = false;
 
 
@@ -68,6 +69,19 @@ setInterval(async () => {
     const font = await invoke("get_island_font");
     if (font && font.length > 0) {
       document.querySelector('.lyrics-area').style.fontFamily = font;
+    }
+  } catch(e) {}
+  // Update island size from settings
+  try {
+    const h = await invoke("get_island_height");
+    if (h && h !== currentIslandHeight) {
+      currentIslandHeight = h;
+      const scale = h / 44;
+      const el = island;
+      el.style.height = h + 'px';
+      el.style.borderRadius = '0 0 ' + Math.round(20 * scale) + 'px ' + Math.round(20 * scale) + 'px';
+      document.getElementById('lyricCurrent').style.fontSize = Math.round(13 * scale) + 'px';
+      document.getElementById('lyricNext').style.fontSize = Math.round(10.5 * scale) + 'px';
     }
   } catch(e) {}
 }, 80);

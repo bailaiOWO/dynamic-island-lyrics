@@ -16,7 +16,7 @@ html, body {
 }
 .island.hidden {
   opacity: 0;
-  transform: translateX(-50%) translateY(-44px);
+  transform: translateX(-50%) translateY(-100%);
 }
 .album-art {
   width: 28px; height: 28px; min-width: 28px; border-radius: 7px;
