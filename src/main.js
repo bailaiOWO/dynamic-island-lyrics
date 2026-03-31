@@ -11,7 +11,6 @@ let currentThemeColor = "#30d158";
 let currentIslandHeight = 44;
 let hidden = false;
 
-
 // Poll mouse position - hide when cursor is near top
 setInterval(async () => {
   try {
@@ -25,7 +24,6 @@ setInterval(async () => {
     }
   } catch(e) {}
 }, 150);
-
 
 function switchLyric(current, next) {
   if (current === lastLyricText) return;
@@ -50,41 +48,43 @@ function updateVisualizer() {
   visBars.forEach(b => b.style.height = (4 + Math.random() * 14) + 'px');
 }
 
+// Main playback loop
 setInterval(async () => {
   try {
     const playing = await invoke("get_is_playing");
     if (playing !== isPlaying) isPlaying = playing;
     updateVisualizer();
-    if (!isPlaying) return;
-    const lyric = await invoke("get_current_lyric");
-    switchLyric(lyric.current, lyric.next);
+    if (isPlaying) {
+      const lyric = await invoke("get_current_lyric");
+      switchLyric(lyric.current, lyric.next);
+    }
   } catch(e) {}
-  // Update theme color from player
+}, 80);
+
+// Settings sync loop (always runs, even when not playing)
+setInterval(async () => {
   try {
     const tc = await invoke("get_theme_color");
     if (tc && tc !== currentThemeColor) currentThemeColor = tc;
   } catch(e) {}
-  // Update font from settings
   try {
     const font = await invoke("get_island_font");
     if (font && font.length > 0) {
       document.querySelector('.lyrics-area').style.fontFamily = font;
     }
   } catch(e) {}
-  // Update island size from settings
   try {
     const h = await invoke("get_island_height");
     if (h && h !== currentIslandHeight) {
       currentIslandHeight = h;
       const scale = h / 44;
-      const el = island;
-      el.style.height = h + 'px';
-      el.style.borderRadius = '0 0 ' + Math.round(20 * scale) + 'px ' + Math.round(20 * scale) + 'px';
-      document.getElementById('lyricCurrent').style.fontSize = Math.round(13 * scale) + 'px';
-      document.getElementById('lyricNext').style.fontSize = Math.round(10.5 * scale) + 'px';
+      island.style.height = h + 'px';
+      island.style.borderRadius = '0 0 ' + Math.round(20 * scale) + 'px ' + Math.round(20 * scale) + 'px';
+      lyricCurrent.style.fontSize = Math.round(13 * scale) + 'px';
+      lyricNext.style.fontSize = Math.round(10.5 * scale) + 'px';
     }
   } catch(e) {}
-}, 80);
+}, 500);
 
 window.addEventListener("DOMContentLoaded", async () => {
   try { await invoke("center_island"); } catch(e) {}
