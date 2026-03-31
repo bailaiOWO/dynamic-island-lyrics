@@ -430,6 +430,8 @@ pub struct AppState {
     player: Mutex<AudioPlayer>,
     island_width: Mutex<f64>,
     theme_color: Mutex<String>,
+    island_font: Mutex<String>,
+    island_height: Mutex<f64>,
 }
 
 // ==================== Helper ====================
@@ -661,6 +663,31 @@ fn set_island_width(width: f64, state: State<'_, AppState>) {
     }
 }
 
+
+#[tauri::command]
+fn set_island_font(font: String, state: State<'_, AppState>) {
+    if let Ok(mut f) = state.island_font.lock() { *f = font; }
+}
+
+#[tauri::command]
+fn get_island_font(state: State<'_, AppState>) -> String {
+    state.island_font.lock().map(|f| f.clone()).unwrap_or_default()
+}
+
+#[tauri::command]
+fn set_island_height(height: f64, state: State<'_, AppState>, app: tauri::AppHandle) {
+    if let Ok(mut h) = state.island_height.lock() { *h = height; }
+    if let Some(w) = app.get_webview_window("island") {
+        let sw = get_screen_width(&w).unwrap_or(1920.0);
+        let _ = w.set_size(tauri::LogicalSize::new(sw, height));
+    }
+}
+
+#[tauri::command]
+fn get_island_height(state: State<'_, AppState>) -> f64 {
+    state.island_height.lock().map(|h| *h).unwrap_or(44.0)
+}
+
 #[tauri::command]
 fn set_theme_color(color: String, state: State<'_, AppState>) {
     if let Ok(mut c) = state.theme_color.lock() {
@@ -889,6 +916,21 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn hide_to_tray(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("player") {
+        let _ = w.hide();
+    }
+}
+
+#[tauri::command]
+fn show_player(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("player") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
 // ==================== Entry ====================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -896,30 +938,107 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState { player: Mutex::new(AudioPlayer::new()), island_width: Mutex::new(380.0), theme_color: Mutex::new("#ffffff".to_string()) })
+        .manage(AppState { player: Mutex::new(AudioPlayer::new()), island_width: Mutex::new(380.0), theme_color: Mutex::new("#ffffff".to_string()), island_font: Mutex::new(String::new()), island_height: Mutex::new(44.0) })
         .invoke_handler(tauri::generate_handler![
             open_music, play_pause, get_position, get_current_lyric,
             get_is_playing, set_volume, seek_to, set_click_through,
             get_mouse_in_zone, set_island_width,
             set_theme_color, get_theme_color,
+
             center_island, resize_island,
+            set_island_font, get_island_font,
+            set_island_height, get_island_height,
             scan_folder, match_lyrics_for_track,
             list_playlists, create_playlist, get_playlist_tracks,
             add_tracks_to_playlist, rename_playlist,
             set_playlist_cover, delete_playlist,
-            quit_app,
+            hide_to_tray, show_player, quit_app,
         ])
 
         .setup(|app| {
+            // Island window
             let w = app.get_webview_window("island").expect("island window");
             let sw = get_screen_width(&w).unwrap_or(1920.0);
             let _ = w.set_size(tauri::LogicalSize::new(sw, 44.0));
             let _ = w.set_position(tauri::LogicalPosition::new(0.0, 0.0));
             let _ = w.set_shadow(false);
             let _ = w.set_ignore_cursor_events(true);
+
+            // Player window
             if let Some(pw) = app.get_webview_window("player") {
                 let _ = pw.set_shadow(false);
             }
+
+            // System tray
+            use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState};
+            use tauri::menu::{MenuBuilder, MenuItemBuilder};
+
+            let show = MenuItemBuilder::with_id("show", "Show Player").build(app)?;
+            let prev = MenuItemBuilder::with_id("prev", "Previous").build(app)?;
+            let playpause = MenuItemBuilder::with_id("playpause", "Play/Pause").build(app)?;
+            let next = MenuItemBuilder::with_id("next", "Next").build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+
+            let menu = MenuBuilder::new(app)
+                .item(&show)
+                .separator()
+                .item(&prev)
+                .item(&playpause)
+                .item(&next)
+                .separator()
+                .item(&quit)
+                .build()?;
+
+            let _tray = TrayIconBuilder::new()
+                .tooltip("Dynamic Island Lyrics")
+                .menu(&menu)
+                .on_menu_event(move |app, event| {
+                    match event.id().as_ref() {
+                        "show" => {
+                            if let Some(w) = app.get_webview_window("player") {
+                                let _ = w.show();
+                                let _ = w.set_focus();
+                            }
+                        }
+                        "prev" => {
+                            // Handled by JS via polling
+                        }
+                        "playpause" => {
+                            if let Ok(mut p) = app.state::<AppState>().player.lock() {
+                                if let Some(ref inner) = p.inner {
+                                    if inner.sink.is_paused() {
+                                        inner.sink.play();
+                                        p.is_paused = false;
+                                    } else {
+                                        inner.sink.pause();
+                                        p.is_paused = true;
+                                    }
+                                }
+                            }
+                        }
+                        "next" => {
+                            // Handled by JS via polling
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event {
+                        if let Some(w) = tray.app_handle().get_webview_window("player") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -63,6 +63,13 @@ setInterval(async () => {
     const tc = await invoke("get_theme_color");
     if (tc && tc !== currentThemeColor) currentThemeColor = tc;
   } catch(e) {}
+  // Update font from settings
+  try {
+    const font = await invoke("get_island_font");
+    if (font && font.length > 0) {
+      document.querySelector('.lyrics-area').style.fontFamily = font;
+    }
+  } catch(e) {}
 }, 80);
 
 window.addEventListener("DOMContentLoaded", async () => {

@@ -229,6 +229,42 @@
     .ctx-item:hover { background: rgba(255,255,255,0.1); }
     .ctx-danger { color: #ff5f57; }
     .ctx-danger:hover { background: rgba(255,95,87,0.15); }
+    /* Settings page */
+    .settings-panel {
+      flex: 1; padding: 24px 32px; overflow-y: auto;
+    }
+    .settings-title {
+      font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.8);
+      margin-bottom: 24px;
+    }
+    .setting-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .setting-label {
+      font-size: 13px; color: rgba(255,255,255,0.6);
+    }
+    .setting-select {
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px; color: #fff; font-size: 12px;
+      padding: 4px 8px; outline: none; cursor: pointer;
+    }
+    .setting-select option { background: #1a1a1a; }
+    .setting-range-row {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .setting-range {
+      width: 120px; height: 3px; -webkit-appearance: none; appearance: none;
+      background: rgba(255,255,255,0.1); border-radius: 2px; outline: none;
+    }
+    .setting-range::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 12px; height: 12px;
+      border-radius: 50%; background: #fff; cursor: pointer;
+    }
+    .setting-value {
+      font-size: 11px; color: rgba(255,255,255,0.4); min-width: 36px;
+    }
+
 
 
     /* Right panel: lyrics */
@@ -286,6 +322,9 @@
         <button class="sidebar-btn" id="tabLibrary" title="歌单">
           <svg width="20" height="20" viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
         </button>
+        <button class="sidebar-btn" id="tabSettings" title="设置">
+          <svg width="20" height="20" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.611 3.611 0 0112 15.6z"/></svg>
+        </button>
       </div>
 
       <!-- Page: Player -->
@@ -342,6 +381,34 @@
           <div class="list-content" id="listContent"></div>
         </div>
       </div>
+
+      <!-- Page: Settings -->
+      <div class="page hidden" id="pageSettings">
+        <div class="settings-panel">
+          <div class="settings-title">设置</div>
+          <div class="setting-row">
+            <span class="setting-label">灵动岛字体</span>
+            <select class="setting-select" id="settingFont">
+              <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif">默认</option>
+              <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
+              <option value="'SimHei', sans-serif">黑体</option>
+              <option value="'KaiTi', serif">楷体</option>
+              <option value="'SimSun', serif">宋体</option>
+              <option value="'Noto Sans SC', sans-serif">Noto Sans SC</option>
+              <option value="'Inter', sans-serif">Inter</option>
+              <option value="'Helvetica Neue', Helvetica, sans-serif">Helvetica</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <span class="setting-label">灵动岛高度</span>
+            <div class="setting-range-row">
+              <input type="range" class="setting-range" id="settingHeight" min="32" max="64" value="44" />
+              <span class="setting-value" id="settingHeightVal">44px</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- Context menu (global) -->

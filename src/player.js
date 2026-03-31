@@ -214,7 +214,7 @@ function updateLyricHighlight(posMs) {
 }
 
 closeBtn.addEventListener('click', async function() {
-  try { await invoke('quit_app'); } catch(e) {}
+  try { await invoke('hide_to_tray'); } catch(e) {}
 });
 
 minBtn.addEventListener('click', async function() {
@@ -516,26 +516,50 @@ document.getElementById('openFolderBtn').addEventListener('click', async functio
 
 var tabPlay = document.getElementById('tabPlay');
 var tabLibrary = document.getElementById('tabLibrary');
+var tabSettings = document.getElementById('tabSettings');
 var pagePlay = document.getElementById('pagePlay');
 var pageLibrary = document.getElementById('pageLibrary');
+var pageSettings = document.getElementById('pageSettings');
+var allTabs = [tabPlay, tabLibrary, tabSettings];
+var allPages = [pagePlay, pageLibrary, pageSettings];
 
 function switchTab(tab) {
+  allTabs.forEach(function(t) { t.classList.remove('active'); });
+  allPages.forEach(function(p) { p.classList.add('hidden'); });
   if (tab === 'play') {
-    pagePlay.classList.remove('hidden');
-    pageLibrary.classList.add('hidden');
     tabPlay.classList.add('active');
-    tabLibrary.classList.remove('active');
-  } else {
-    pagePlay.classList.add('hidden');
-    pageLibrary.classList.remove('hidden');
-    tabPlay.classList.remove('active');
+    pagePlay.classList.remove('hidden');
+  } else if (tab === 'library') {
     tabLibrary.classList.add('active');
+    pageLibrary.classList.remove('hidden');
     showPlaylistView();
+  } else if (tab === 'settings') {
+    tabSettings.classList.add('active');
+    pageSettings.classList.remove('hidden');
   }
 }
 
 tabPlay.addEventListener('click', function() { switchTab('play'); });
 tabLibrary.addEventListener('click', function() { switchTab('library'); });
+tabSettings.addEventListener('click', function() { switchTab('settings'); });
+
+// ==================== Settings ====================
+
+var settingFont = document.getElementById('settingFont');
+var settingHeight = document.getElementById('settingHeight');
+var settingHeightVal = document.getElementById('settingHeightVal');
+
+settingFont.addEventListener('change', function() {
+  invoke('set_island_font', { font: settingFont.value }).catch(function(){});
+});
+
+settingHeight.addEventListener('input', function() {
+  var h = parseInt(settingHeight.value);
+  settingHeightVal.textContent = h + 'px';
+  invoke('set_island_height', { height: h }).catch(function(){});
+});
+
+
 
 // Init
 showPlaylistView();
