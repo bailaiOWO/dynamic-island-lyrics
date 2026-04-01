@@ -513,7 +513,7 @@ fn open_music(path: String, state: State<'_, AppState>) -> Result<SongInfo, Stri
             None => ("Unknown".to_string(), fname),
         };
         let lyrics = load_lyrics(&fp);
-        let cover_path = extract_cover_embedded(&path);
+        let cover_path = String::new(); // cover via manual match
         let dur = if dur_ms > 0 { dur_ms }
             else if !lyrics.is_empty() { lyrics.last().map(|l| l.time_ms + 10000).unwrap_or(0) }
             else { 0 };
@@ -538,7 +538,7 @@ fn open_music(path: String, state: State<'_, AppState>) -> Result<SongInfo, Stri
         None => ("Unknown".to_string(), fname),
     };
     let lyrics = load_lyrics(&fp);
-    let cover_path = extract_cover_embedded(&path);
+    let cover_path = String::new();
     let dur = if dur_ms > 0 { dur_ms }
         else if !lyrics.is_empty() { lyrics.last().map(|l| l.time_ms + 10000).unwrap_or(0) }
         else { 0 };
