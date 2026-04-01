@@ -1,9 +1,10 @@
-use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::io::Read;
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{Manager, State};
 
@@ -324,63 +325,59 @@ fn ffprobe_meta(path: &str) -> AudioMeta {
     }
     AudioMeta { duration_ms: dur, sample_rate: sr, channels: ch }
 }
+// ==================== FFmpeg Pipe Source (fallback) ====================
 
-/// Decode entire audio file to memory via ffmpeg, preserving original sample rate.
-/// Returns (samples_i16, sample_rate, channels)
-fn ffmpeg_decode_full(path: &str, sr: u32, ch: u16) -> Result<Vec<i16>, String> {
-    let out = Command::new(ffmpeg_bin())
-        .args(["-i", path,
-               "-f", "s16le", "-acodec", "pcm_s16le",
-               "-ar", &sr.to_string(),
-               "-ac", &ch.to_string(),
-               "-"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("ffmpeg: {e}"))?;
-    if out.stdout.is_empty() {
-        return Err("ffmpeg produced no output".into());
-    }
-    let samples: Vec<i16> = out.stdout
-        .chunks_exact(2)
-        .map(|c| i16::from_le_bytes([c[0], c[1]]))
-        .collect();
-    Ok(samples)
-}
-
-// ==================== Memory Buffer Source ====================
-
-struct BufferSource {
-    data: Arc<Vec<i16>>,
-    pos: Arc<Mutex<usize>>,
+struct FfmpegSource {
+    reader: BufReader<std::process::ChildStdout>,
+    child: std::process::Child,
     sample_rate: u32,
     channels: u16,
 }
 
-impl BufferSource {
-    fn new(data: Arc<Vec<i16>>, pos: Arc<Mutex<usize>>, sample_rate: u32, channels: u16) -> Self {
-        Self { data, pos, sample_rate, channels }
+impl FfmpegSource {
+    fn new(path: &str, sample_rate: u32, channels: u16) -> Result<Self, String> {
+        let mut child = Command::new(ffmpeg_bin())
+            .args(["-i", path,
+                   "-f", "s16le", "-acodec", "pcm_s16le",
+                   "-ar", &sample_rate.to_string(),
+                   "-ac", &channels.to_string(),
+                   "-"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .stdin(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("ffmpeg spawn: {e}"))?;
+        let stdout = child.stdout.take().ok_or("no stdout")?;
+        Ok(Self {
+            reader: BufReader::with_capacity(65536, stdout),
+            child, sample_rate, channels,
+        })
     }
 }
 
-impl Iterator for BufferSource {
+impl Drop for FfmpegSource {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+    }
+}
+
+impl Iterator for FfmpegSource {
     type Item = i16;
     fn next(&mut self) -> Option<i16> {
-        let mut p = self.pos.lock().ok()?;
-        if *p >= self.data.len() { return None; }
-        let sample = self.data[*p];
-        *p += 1;
-        Some(sample)
+        let mut buf = [0u8; 2];
+        self.reader.read_exact(&mut buf).ok()?;
+        Some(i16::from_le_bytes(buf))
     }
 }
 
-impl Source for BufferSource {
+impl Source for FfmpegSource {
     fn current_frame_len(&self) -> Option<usize> { None }
     fn channels(&self) -> u16 { self.channels }
     fn sample_rate(&self) -> u32 { self.sample_rate }
     fn total_duration(&self) -> Option<Duration> { None }
 }
+
+
 
 // ==================== Audio Player ====================
 
@@ -388,17 +385,17 @@ struct PlayerInner {
     sink: Sink,
     _stream: OutputStream,
     _handle: OutputStreamHandle,
-    pcm_data: Arc<Vec<i16>>,
-    pcm_pos: Arc<Mutex<usize>>,
-    sample_rate: u32,
-    channels: u16,
 }
 
 unsafe impl Send for PlayerInner {}
 
 pub struct AudioPlayer {
     inner: Option<PlayerInner>,
+    current_path: String,
+    use_ffmpeg: bool,
     lyrics: Vec<LyricLine>,
+    start_time: Option<std::time::Instant>,
+    paused_elapsed: Duration,
     is_paused: bool,
     song_title: String,
     song_artist: String,
@@ -408,7 +405,9 @@ pub struct AudioPlayer {
 impl AudioPlayer {
     fn new() -> Self {
         Self {
-            inner: None, lyrics: Vec::new(),
+            inner: None, current_path: String::new(), use_ffmpeg: false,
+            lyrics: Vec::new(),
+            start_time: None, paused_elapsed: Duration::ZERO,
             is_paused: false,
             song_title: String::new(), song_artist: String::new(),
             duration_ms: 0,
@@ -416,12 +415,10 @@ impl AudioPlayer {
     }
 
     fn elapsed_ms(&self) -> u64 {
-        if let Some(ref inner) = self.inner {
-            let pos = inner.pcm_pos.lock().map(|p| *p).unwrap_or(0);
-            let samples_per_ms = (inner.sample_rate as u64 * inner.channels as u64) / 1000;
-            if samples_per_ms > 0 { pos as u64 / samples_per_ms } else { 0 }
-        } else {
-            0
+        match (self.is_paused, self.start_time) {
+            (true, _) => self.paused_elapsed.as_millis() as u64,
+            (false, Some(t)) => (self.paused_elapsed + t.elapsed()).as_millis() as u64,
+            _ => 0,
         }
     }
 }
@@ -469,29 +466,70 @@ pub struct CurrentLyric {
 #[tauri::command]
 fn open_music(path: String, state: State<'_, AppState>) -> Result<SongInfo, String> {
     eprintln!("[open_music] path={}", path);
-    log_ffmpeg_path();
     let mut p = state.player.lock().map_err(|e| e.to_string())?;
 
-    // Stop old
     if let Some(old) = p.inner.take() { old.sink.stop(); drop(old); }
-
-    // Probe metadata
-    let meta = ffprobe_meta(&path);
-    eprintln!("[open_music] sr={} ch={} dur={}ms", meta.sample_rate, meta.channels, meta.duration_ms);
-
-    // Decode entire file to memory (original sample rate, no quality loss)
-    eprintln!("[open_music] decoding to memory...");
-    let samples = ffmpeg_decode_full(&path, meta.sample_rate, meta.channels)?;
-    eprintln!("[open_music] decoded {} samples ({:.1}MB)", samples.len(), samples.len() as f64 * 2.0 / 1048576.0);
-
-    let pcm_data = Arc::new(samples);
-    let pcm_pos = Arc::new(Mutex::new(0usize));
-
-    let source = BufferSource::new(pcm_data.clone(), pcm_pos.clone(), meta.sample_rate, meta.channels);
 
     let (stream, handle) = OutputStream::try_default().map_err(|e| e.to_string())?;
     let sink = Sink::try_new(&handle).map_err(|e| e.to_string())?;
-    sink.append(source);
+
+    // Try rodio/symphonia first
+    let mut dur_ms = 0u64;
+    let mut use_ffmpeg = false;
+    match File::open(&path) {
+        Ok(file) => match Decoder::new(BufReader::new(file)) {
+            Ok(source) => {
+                dur_ms = source.total_duration().map(|d| d.as_millis() as u64).unwrap_or(0);
+                sink.append(source);
+                std::thread::sleep(Duration::from_millis(50));
+                if sink.empty() {
+                    eprintln!("[open_music] rodio produced no audio, falling back to ffmpeg");
+                    use_ffmpeg = true;
+                } else {
+                    eprintln!("[open_music] rodio streaming ok");
+                }
+            }
+            Err(e) => {
+                eprintln!("[open_music] rodio decode error: {}, falling back to ffmpeg", e);
+                use_ffmpeg = true;
+            }
+        },
+        Err(e) => return Err(format!("Cannot open: {e}")),
+    }
+
+    if use_ffmpeg {
+        sink.stop();
+        let sink2 = Sink::try_new(&handle).map_err(|e| e.to_string())?;
+        let meta = ffprobe_meta(&path);
+        dur_ms = meta.duration_ms;
+        let ff_source = FfmpegSource::new(&path, meta.sample_rate, meta.channels)?;
+        sink2.append(ff_source);
+        eprintln!("[open_music] ffmpeg streaming ok, dur={}ms", dur_ms);
+
+        let fp = PathBuf::from(&path);
+        let fname = fp.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        let (artist, title) = match fname.split_once(" - ") {
+            Some((a, t)) => (a.trim().to_string(), t.trim().to_string()),
+            None => ("Unknown".to_string(), fname),
+        };
+        let lyrics = load_lyrics(&fp);
+        let cover_path = extract_cover_embedded(&path);
+        let dur = if dur_ms > 0 { dur_ms }
+            else if !lyrics.is_empty() { lyrics.last().map(|l| l.time_ms + 10000).unwrap_or(0) }
+            else { 0 };
+
+        p.song_title = title.clone();
+        p.song_artist = artist.clone();
+        p.lyrics = lyrics.clone();
+        p.duration_ms = dur;
+        p.current_path = path.clone();
+        p.use_ffmpeg = true;
+        p.inner = Some(PlayerInner { sink: sink2, _stream: stream, _handle: handle });
+        p.start_time = Some(std::time::Instant::now());
+        p.paused_elapsed = Duration::ZERO;
+        p.is_paused = false;
+        return Ok(SongInfo { title, artist, has_lyrics: !lyrics.is_empty(), lyrics, duration_ms: dur, cover_path });
+    }
 
     let fp = PathBuf::from(&path);
     let fname = fp.file_stem().unwrap_or_default().to_string_lossy().to_string();
@@ -499,73 +537,67 @@ fn open_music(path: String, state: State<'_, AppState>) -> Result<SongInfo, Stri
         Some((a, t)) => (a.trim().to_string(), t.trim().to_string()),
         None => ("Unknown".to_string(), fname),
     };
-
-    // Load lyrics: local first, then online
-    let mut lyrics = load_lyrics(&fp);
-    let dur = if meta.duration_ms > 0 {
-        meta.duration_ms
-    } else {
-        let total_samples = pcm_data.len() as u64;
-        let sps = meta.sample_rate as u64 * meta.channels as u64;
-        if sps > 0 { total_samples * 1000 / sps } else { 0 }
-    };
-    if lyrics.is_empty() && artist != "Unknown" {
-        lyrics = fetch_lyrics_online(&title, &artist, dur / 1000);
-    }
-
-    // Extract cover: embedded first, then online
-    let cover_path = {
-        let tmp = std::env::temp_dir().join("dil_cover.jpg");
-        let _ = std::fs::remove_file(&tmp);
-        let _ = Command::new(ffmpeg_bin())
-            .args(["-i", &path, "-an", "-vcodec", "copy", "-y",
-                   &tmp.to_string_lossy()])
-            .stdout(Stdio::null()).stderr(Stdio::null()).stdin(Stdio::null())
-            .output();
-        if tmp.exists() {
-            if let Ok(bytes) = std::fs::read(&tmp) {
-                let mut b64 = String::from("data:image/jpeg;base64,");
-                b64.push_str(&base64_encode(&bytes));
-                b64
-            } else { String::new() }
-        } else { String::new() }
-    };
-    let cover_path = if cover_path.is_empty() && artist != "Unknown" {
-        fetch_cover_online(&title, &artist)
-    } else {
-        cover_path
-    };
+    let lyrics = load_lyrics(&fp);
+    let cover_path = extract_cover_embedded(&path);
+    let dur = if dur_ms > 0 { dur_ms }
+        else if !lyrics.is_empty() { lyrics.last().map(|l| l.time_ms + 10000).unwrap_or(0) }
+        else { 0 };
 
     p.song_title = title.clone();
     p.song_artist = artist.clone();
     p.lyrics = lyrics.clone();
     p.duration_ms = dur;
-    p.inner = Some(PlayerInner {
-        sink, _stream: stream, _handle: handle,
-        pcm_data, pcm_pos, sample_rate: meta.sample_rate, channels: meta.channels,
-    });
+    p.current_path = path.clone();
+    p.use_ffmpeg = false;
+    p.inner = Some(PlayerInner { sink, _stream: stream, _handle: handle });
+    p.start_time = Some(std::time::Instant::now());
+    p.paused_elapsed = Duration::ZERO;
     p.is_paused = false;
 
-    eprintln!("[open_music] playing! title={} lyrics={} dur={}ms cover={}", title, lyrics.len(), dur, !cover_path.is_empty());
+    eprintln!("[open_music] playing! title={} lyrics={} dur={}ms", title, lyrics.len(), dur);
     Ok(SongInfo { title, artist, has_lyrics: !lyrics.is_empty(), lyrics, duration_ms: dur, cover_path })
-
 }
+
+
+fn extract_cover_embedded(path: &str) -> String {
+    let tmp = std::env::temp_dir().join("dil_cover.jpg");
+    let _ = std::fs::remove_file(&tmp);
+    // Try ffmpeg but with a short timeout
+    let result = Command::new(ffmpeg_bin())
+        .args(["-i", path, "-an", "-vcodec", "copy", "-y", &tmp.to_string_lossy()])
+        .stdout(Stdio::null()).stderr(Stdio::null()).stdin(Stdio::null())
+        .output();
+    if result.is_ok() && tmp.exists() {
+        if let Ok(bytes) = std::fs::read(&tmp) {
+            if !bytes.is_empty() {
+                let mut b64 = String::from("data:image/jpeg;base64,");
+                b64.push_str(&base64_encode(&bytes));
+                return b64;
+            }
+        }
+    }
+    String::new()
+}
+
+
 
 #[tauri::command]
 fn play_pause(state: State<'_, AppState>) -> Result<bool, String> {
     let mut p = state.player.lock().map_err(|e| e.to_string())?;
-    let inner = p.inner.as_ref().ok_or("No music loaded")?;
-    let was_paused = inner.sink.is_paused();
-
+    let was_paused = p.inner.as_ref().ok_or("No music loaded")?.sink.is_paused();
     if was_paused {
-        inner.sink.play();
+        if let Some(ref inner) = p.inner { inner.sink.play(); }
+        p.start_time = Some(std::time::Instant::now());
         p.is_paused = false;
     } else {
-        inner.sink.pause();
+        if let Some(t) = p.start_time { p.paused_elapsed += t.elapsed(); }
+        p.start_time = None;
+        if let Some(ref inner) = p.inner { inner.sink.pause(); }
         p.is_paused = true;
     }
-    Ok(!was_paused) // true = now playing
+    Ok(!was_paused)
 }
+
 
 #[tauri::command]
 fn get_position(state: State<'_, AppState>) -> Result<u64, String> {
@@ -615,15 +647,40 @@ fn set_volume(volume: f32, state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 fn seek_to(position_ms: u64, state: State<'_, AppState>) -> Result<(), String> {
-    let p = state.player.lock().map_err(|e| e.to_string())?;
-    if let Some(ref inner) = p.inner {
-        let samples_per_ms = (inner.sample_rate as u64 * inner.channels as u64) / 1000;
-        let target = (position_ms * samples_per_ms) as usize;
-        let clamped = target.min(inner.pcm_data.len());
-        if let Ok(mut pos) = inner.pcm_pos.lock() {
-            *pos = clamped;
+    let mut p = state.player.lock().map_err(|e| e.to_string())?;
+    let dur = Duration::from_millis(position_ms);
+
+    if p.use_ffmpeg {
+        // FFmpeg mode: restart process with -ss
+        if let Some(old) = p.inner.take() { old.sink.stop(); drop(old); }
+        let path = p.current_path.clone();
+        let meta = ffprobe_meta(&path);
+        let (stream, handle) = OutputStream::try_default().map_err(|e| e.to_string())?;
+        let sink = Sink::try_new(&handle).map_err(|e| e.to_string())?;
+        let ss = format!("{:.3}", position_ms as f64 / 1000.0);
+        let mut child = Command::new(ffmpeg_bin())
+            .args(["-ss", &ss, "-i", &path,
+                   "-f", "s16le", "-acodec", "pcm_s16le",
+                   "-ar", &meta.sample_rate.to_string(),
+                   "-ac", &meta.channels.to_string(),
+                   "-"])
+            .stdout(Stdio::piped()).stderr(Stdio::null()).stdin(Stdio::null())
+            .spawn().map_err(|e| format!("ffmpeg: {e}"))?;
+        let stdout = child.stdout.take().ok_or("no stdout")?;
+        let source = FfmpegSource {
+            reader: BufReader::with_capacity(65536, stdout),
+            child, sample_rate: meta.sample_rate, channels: meta.channels,
+        };
+        sink.append(source);
+        p.inner = Some(PlayerInner { sink, _stream: stream, _handle: handle });
+    } else {
+        // Rodio mode: use try_seek
+        if let Some(ref inner) = p.inner {
+            let _ = inner.sink.try_seek(dur);
         }
     }
+    p.start_time = Some(std::time::Instant::now());
+    p.paused_elapsed = dur;
     Ok(())
 }
 
